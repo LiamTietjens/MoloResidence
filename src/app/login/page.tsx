@@ -1,0 +1,61 @@
+'use client';
+
+import { useActionState } from 'react';
+import { login, type LoginState } from './actions';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+const initialState: LoginState = {};
+
+export default function LoginPage() {
+  const [state, formAction, pending] = useActionState(login, initialState);
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader className="text-center">
+        <CardTitle className="text-xl">Molo Residence</CardTitle>
+        <CardDescription>Sign in to your account</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form action={formAction} className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              name="username"
+              type="text"
+              autoComplete="username"
+              required
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </div>
+          {state.error && (
+            <p className="text-sm text-destructive" aria-live="polite">
+              {state.error}
+            </p>
+          )}
+          <Button type="submit" className="w-full" disabled={pending}>
+            {pending ? 'Signing in...' : 'Sign in'}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
