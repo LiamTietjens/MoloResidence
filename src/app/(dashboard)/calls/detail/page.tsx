@@ -1,34 +1,93 @@
-import { notFound } from "next/navigation";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
 
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export default async function CallDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+interface CallDetail {
+  id: string;
+  started_at: string | null;
+  duration_seconds: number | null;
+  from_number: string | null;
+  to_number: string | null;
+  mode: string | null;
+  outcome: string | null;
+  sentiment: string | null;
+  cost_usd: number | null;
+  summary: string | null;
+  transcript_url: string | null;
+  recording_url: string | null;
+  tool_calls: unknown;
+  property_id: string | null;
+  properties: { name: string } | null;
+}
 
-  const { data: call } = await supabase
-    .from("call_logs")
-    .select("*, properties(name)")
-    .eq("id", id)
-    .single();
+export default function CallDetailPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const id = searchParams.get("id");
 
-  if (!call) notFound();
+  const [call, setCall] = useState<CallDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+
+    async function fetchCall() {
+      const { data } = await supabase
+        .from("call_logs")
+        .select("*, properties(name)")
+        .eq("id", id!)
+        .single();
+
+      setCall(data as unknown as CallDetail | null);
+      setLoading(false);
+    }
+    fetchCall();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!id || !call) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Link href="/calls">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft />
+            </Button>
+          </Link>
+          <h1 className="text-2xl font-semibold tracking-tight">Call Not Found</h1>
+        </div>
+        <p className="text-muted-foreground">
+          The requested call could not be found.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Link href="/calls">
-          <Button variant="ghost" size="icon-sm">
+          <Button variant="ghost" size="icon">
             <ArrowLeft />
           </Button>
         </Link>
@@ -48,9 +107,7 @@ export default async function CallDetailPage({
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Duration
-              </p>
+              <p className="text-xs font-medium text-muted-foreground">Duration</p>
               <p className="text-sm font-medium">
                 {call.duration_seconds
                   ? `${Math.floor(call.duration_seconds / 60)}:${String(
@@ -60,28 +117,32 @@ export default async function CallDetailPage({
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-muted-foreground">From</p>
-              <p className="text-sm font-mono">{call.from_number || "-"}</p>
-            </div>
-            <div>
               <p className="text-xs font-medium text-muted-foreground">Mode</p>
               <Badge variant={call.mode === "inbound" ? "default" : "secondary"}>
                 {call.mode || "-"}
               </Badge>
             </div>
             <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Property
-              </p>
+              <p className="text-xs font-medium text-muted-foreground">From</p>
+              <p className="text-sm font-mono">{call.from_number || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">To</p>
+              <p className="text-sm font-mono">{call.to_number || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Property</p>
               <p className="text-sm">
-                {(call.properties as { name: string } | null)?.name || "-"}
+                {call.properties?.name || "-"}
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Outcome
-              </p>
+              <p className="text-xs font-medium text-muted-foreground">Outcome</p>
               <p className="text-sm capitalize">{call.outcome || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Sentiment</p>
+              <p className="text-sm capitalize">{call.sentiment || "-"}</p>
             </div>
             <div>
               <p className="text-xs font-medium text-muted-foreground">Cost</p>
@@ -92,9 +153,7 @@ export default async function CallDetailPage({
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Call ID
-              </p>
+              <p className="text-xs font-medium text-muted-foreground">Call ID</p>
               <p className="text-xs font-mono text-muted-foreground">
                 {call.id}
               </p>

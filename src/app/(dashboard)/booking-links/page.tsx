@@ -1,7 +1,10 @@
-import { format } from "date-fns";
-import { Link as LinkIcon, CheckCircle2, XCircle, MousePointerClick } from "lucide-react";
+"use client";
 
-import { supabase } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+import { format } from "date-fns";
+import { Link as LinkIcon, CheckCircle2, XCircle, MousePointerClick, Loader2 } from "lucide-react";
+
+import { supabase } from "@/lib/supabase-browser";
 import {
   Table,
   TableBody,
@@ -17,12 +20,44 @@ function maskPhone(phone: string | null) {
   return phone.slice(0, 4) + "***" + phone.slice(-3);
 }
 
-export default async function BookingLinksPage() {
-  const { data: links } = await supabase
-    .from("booking_links")
-    .select("id, sent_at, phone, guest_name, property_name, booking_option, check_in, check_out, clicked_at, converted")
-    .order("sent_at", { ascending: false })
-    .limit(100);
+interface BookingLink {
+  id: string;
+  sent_at: string | null;
+  phone: string | null;
+  guest_name: string | null;
+  property_name: string | null;
+  booking_option: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  clicked_at: string | null;
+  converted: boolean | null;
+}
+
+export default function BookingLinksPage() {
+  const [links, setLinks] = useState<BookingLink[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchLinks() {
+      const { data } = await supabase
+        .from("booking_links")
+        .select("id, sent_at, phone, guest_name, property_name, booking_option, check_in, check_out, clicked_at, converted")
+        .order("sent_at", { ascending: false })
+        .limit(100);
+
+      setLinks((data as unknown as BookingLink[]) || []);
+      setLoading(false);
+    }
+    fetchLinks();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -46,7 +81,7 @@ export default async function BookingLinksPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {links?.map((link) => (
+          {links.map((link) => (
             <TableRow key={link.id}>
               <TableCell>
                 {link.sent_at
@@ -83,7 +118,7 @@ export default async function BookingLinksPage() {
               </TableCell>
             </TableRow>
           ))}
-          {(!links || links.length === 0) && (
+          {links.length === 0 && (
             <TableRow>
               <TableCell
                 colSpan={8}

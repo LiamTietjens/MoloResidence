@@ -1,7 +1,9 @@
 'use client';
 
-import { useActionState } from 'react';
-import { login, type LoginState } from './actions';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { supabase } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -13,10 +15,62 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-const initialState: LoginState = {};
-
 export default function LoginPage() {
-  const [state, formAction, pending] = useActionState(login, initialState);
+  const { user, login, loading } = useAuth();
+  const router = useRouter();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace('/');
+    }
+  }, [loading, user, router]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc('verify_login', {
+        p_username: username,
+        p_password: password,
+      });
+
+      if (rpcError) {
+        setError('Invalid credentials');
+        setPending(false);
+        return;
+      }
+
+      if (data?.error) {
+        setError(data.error);
+        setPending(false);
+        return;
+      }
+
+      if (data?.user) {
+        login({
+          id: data.user.id,
+          username: data.user.username,
+          displayName: data.user.displayName,
+        });
+      } else {
+        setError('Invalid credentials');
+        setPending(false);
+      }
+    } catch {
+      setError('Invalid credentials');
+      setPending(false);
+    }
+  }
+
+  if (loading || user) {
+    return null;
+  }
 
   return (
     <Card className="w-full max-w-sm">
@@ -25,7 +79,7 @@ export default function LoginPage() {
         <CardDescription>Sign in to your account</CardDescription>
       </CardHeader>
       <CardContent>
-        <form action={formAction} className="grid gap-4">
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor="username">Username</Label>
             <Input
@@ -34,6 +88,8 @@ export default function LoginPage() {
               type="text"
               autoComplete="username"
               required
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
             />
           </div>
           <div className="grid gap-2">
@@ -44,11 +100,13 @@ export default function LoginPage() {
               type="password"
               autoComplete="current-password"
               required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          {state.error && (
+          {error && (
             <p className="text-sm text-destructive" aria-live="polite">
-              {state.error}
+              {error}
             </p>
           )}
           <Button type="submit" className="w-full" disabled={pending}>

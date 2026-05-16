@@ -1,6 +1,7 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,6 +19,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import Link from 'next/link';
 
 const propertySchema = z.object({
@@ -33,6 +43,18 @@ const propertySchema = z.object({
 
 type PropertyFormData = z.infer<typeof propertySchema>;
 
+interface Property {
+  id: string;
+  name: string;
+  address: string;
+  kwhotel_hotel_id: number | null;
+  transfer_phone: string | null;
+  aliases: string[] | null;
+  language_default: string | null;
+  timezone: string | null;
+  notes: string | null;
+}
+
 const TIMEZONES = [
   'Europe/Warsaw',
   'Europe/Berlin',
@@ -44,14 +66,22 @@ const TIMEZONES = [
   'UTC',
 ];
 
-export default function NewPropertyPage() {
+export default function PropertyDetailPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const id = searchParams.get('id');
+
+  const [property, setProperty] = useState<Property | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const {
     register,
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<PropertyFormData>({
     resolver: zodResolver(propertySchema),
@@ -70,35 +100,113 @@ export default function NewPropertyPage() {
   const languageDefault = watch('language_default');
   const timezone = watch('timezone');
 
+  useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+
+    async function fetchProperty() {
+      const { data, error } = await supabase
+        .from('properties')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error || !data) {
+        toast.error('Property not found');
+        router.push('/properties');
+        return;
+      }
+
+      setProperty(data);
+      reset({
+        name: data.name || '',
+        address: data.address || '',
+        kwhotel_hotel_id: data.kwhotel_hotel_id?.toString() || '',
+        transfer_phone: data.transfer_phone || '',
+        aliases: Array.isArray(data.aliases) ? data.aliases.join(', ') : '',
+        language_default: data.language_default === 'pl' ? 'pl' : 'en',
+        timezone: data.timezone || 'Europe/Warsaw',
+        notes: data.notes || '',
+      });
+      setLoading(false);
+    }
+
+    fetchProperty();
+  }, [id, router, reset]);
+
   async function onSubmit(data: PropertyFormData) {
+    if (!id) return;
+
     const aliasesArray = data.aliases
       ? data.aliases.split(',').map((a) => a.trim()).filter(Boolean)
       : [];
 
-    const { error } = await supabase.from('properties').insert({
-      name: data.name,
-      address: data.address,
-      kwhotel_hotel_id: data.kwhotel_hotel_id ? parseInt(data.kwhotel_hotel_id, 10) : null,
-      transfer_phone: data.transfer_phone || null,
-      aliases: aliasesArray,
-      language_default: data.language_default || 'en',
-      timezone: data.timezone || 'Europe/Warsaw',
-      notes: data.notes || null,
-    });
+    const { error } = await supabase
+      .from('properties')
+      .update({
+        name: data.name,
+        address: data.address,
+        kwhotel_hotel_id: data.kwhotel_hotel_id ? parseInt(data.kwhotel_hotel_id, 10) : null,
+        transfer_phone: data.transfer_phone || null,
+        aliases: aliasesArray,
+        language_default: data.language_default || 'en',
+        timezone: data.timezone || 'Europe/Warsaw',
+        notes: data.notes || null,
+      })
+      .eq('id', id);
 
     if (error) {
-      toast.error(`Failed to create property: ${error.message}`);
+      toast.error(`Failed to save: ${error.message}`);
       return;
     }
 
-    toast.success('Property created successfully');
+    toast.success('Property updated successfully');
     router.push('/properties');
+  }
+
+  async function handleDelete() {
+    if (!id) return;
+    setDeleting(true);
+
+    const { error } = await supabase.from('properties').delete().eq('id', id);
+
+    if (error) {
+      toast.error(`Failed to delete: ${error.message}`);
+      setDeleting(false);
+      return;
+    }
+
+    toast.success('Property deleted');
+    router.push('/properties');
+  }
+
+  if (!id) {
+    return (
+      <div className="space-y-6 max-w-2xl">
+        <Card className="p-8 text-center text-destructive">
+          No property ID provided. Please select a property from the list.
+        </Card>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-6 max-w-2xl">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight">Edit Property</h1>
+        </div>
+        <Card className="p-8 text-center text-muted-foreground">Loading...</Card>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6 max-w-2xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">New Property</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Edit Property</h1>
       </div>
 
       <Card className="p-6">
@@ -204,13 +312,45 @@ export default function NewPropertyPage() {
             />
           </div>
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex items-center gap-3 pt-2">
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create Property'}
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </Button>
             <Button variant="outline" render={<Link href="/properties" />}>
               Cancel
             </Button>
+            <div className="flex-1" />
+            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <DialogTrigger
+                render={<Button variant="destructive" type="button" />}
+              >
+                Delete
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete Property</DialogTitle>
+                  <DialogDescription>
+                    This will permanently delete this property and all associated
+                    knowledge bases. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                  >
+                    {deleting ? 'Deleting...' : 'Delete Property'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </form>
       </Card>

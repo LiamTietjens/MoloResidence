@@ -1,8 +1,11 @@
-import Link from "next/link";
-import { formatDistanceToNow, format } from "date-fns";
-import { Phone } from "lucide-react";
+"use client";
 
-import { supabase } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { formatDistanceToNow, format } from "date-fns";
+import { Phone, Loader2 } from "lucide-react";
+
+import { supabase } from "@/lib/supabase-browser";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -45,12 +48,44 @@ function formatDuration(seconds: number | null) {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-export default async function CallsPage() {
-  const { data: calls } = await supabase
-    .from("call_logs")
-    .select("id, started_at, duration_seconds, from_number, mode, outcome, cost_usd, property_id, properties(name)")
-    .order("started_at", { ascending: false })
-    .limit(100);
+interface CallLog {
+  id: string;
+  started_at: string | null;
+  duration_seconds: number | null;
+  from_number: string | null;
+  mode: string | null;
+  outcome: string | null;
+  cost_usd: number | null;
+  property_id: string | null;
+  properties: { name: string } | null;
+}
+
+export default function CallsPage() {
+  const router = useRouter();
+  const [calls, setCalls] = useState<CallLog[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchCalls() {
+      const { data } = await supabase
+        .from("call_logs")
+        .select("id, started_at, duration_seconds, from_number, mode, outcome, cost_usd, property_id, properties(name)")
+        .order("started_at", { ascending: false })
+        .limit(100);
+
+      setCalls((data as unknown as CallLog[]) || []);
+      setLoading(false);
+    }
+    fetchCalls();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -71,17 +106,18 @@ export default async function CallsPage() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {calls?.map((call) => (
-            <TableRow key={call.id}>
+          {calls.map((call) => (
+            <TableRow
+              key={call.id}
+              className="cursor-pointer"
+              onClick={() => router.push(`/calls/detail?id=${call.id}`)}
+            >
               <TableCell>
-                <Link
-                  href={`/calls/${call.id}`}
-                  className="font-medium text-foreground hover:underline"
-                >
+                <span className="font-medium text-foreground">
                   {call.started_at
                     ? format(new Date(call.started_at), "MMM d, yyyy HH:mm")
                     : "-"}
-                </Link>
+                </span>
                 {call.started_at && (
                   <p className="text-xs text-muted-foreground">
                     {formatDistanceToNow(new Date(call.started_at), {
@@ -96,8 +132,7 @@ export default async function CallsPage() {
               </TableCell>
               <TableCell>{modeBadge(call.mode)}</TableCell>
               <TableCell>
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                {(call as any).properties?.name || "-"}
+                {call.properties?.name || "-"}
               </TableCell>
               <TableCell>{outcomeBadge(call.outcome)}</TableCell>
               <TableCell className="text-right font-mono text-xs">
@@ -107,7 +142,7 @@ export default async function CallsPage() {
               </TableCell>
             </TableRow>
           ))}
-          {(!calls || calls.length === 0) && (
+          {calls.length === 0 && (
             <TableRow>
               <TableCell
                 colSpan={7}

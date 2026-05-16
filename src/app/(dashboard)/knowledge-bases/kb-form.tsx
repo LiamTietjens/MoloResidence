@@ -1,20 +1,20 @@
-"use client";
+'use client';
 
-import { useState, useTransition, useCallback, KeyboardEvent } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { useState, useCallback, KeyboardEvent } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -24,15 +24,23 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogClose,
-} from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { XIcon, CopyIcon, Trash2Icon } from "lucide-react";
-import { toast } from "sonner";
-import type { KnowledgeBaseFormData } from "./actions";
+} from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { XIcon, CopyIcon, Trash2Icon } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface Property {
   id: string;
   name: string;
+}
+
+export interface KBFormData {
+  name: string;
+  kind: 'general' | 'property' | 'exception';
+  property_id: string | null;
+  is_default_general: boolean;
+  content: string;
+  room_numbers: string[];
 }
 
 interface KBFormProps {
@@ -40,15 +48,16 @@ interface KBFormProps {
   initialData?: {
     id: string;
     name: string;
-    kind: "general" | "property" | "exception";
+    kind: 'general' | 'property' | 'exception';
     property_id: string | null;
     is_default_general: boolean;
     content: string;
     room_numbers: string[];
   };
-  onSubmit: (data: KnowledgeBaseFormData) => Promise<{ error: string } | undefined>;
-  onDuplicate?: () => Promise<{ error: string } | undefined>;
-  onDelete?: () => Promise<{ error: string } | undefined>;
+  onSubmit: (data: KBFormData) => Promise<{ error?: string } | void>;
+  onDuplicate?: () => Promise<{ error?: string } | void>;
+  onDelete?: () => Promise<{ error?: string } | void>;
+  submitting?: boolean;
 }
 
 export function KBForm({
@@ -57,45 +66,47 @@ export function KBForm({
   onSubmit,
   onDuplicate,
   onDelete,
+  submitting = false,
 }: KBFormProps) {
-  const [name, setName] = useState(initialData?.name || "");
-  const [kind, setKind] = useState<"general" | "property" | "exception">(
-    initialData?.kind || "general"
+  const [name, setName] = useState(initialData?.name || '');
+  const [kind, setKind] = useState<'general' | 'property' | 'exception'>(
+    initialData?.kind || 'general'
   );
-  const [propertyId, setPropertyId] = useState(initialData?.property_id || "");
+  const [propertyId, setPropertyId] = useState(initialData?.property_id || '');
   const [isDefaultGeneral, setIsDefaultGeneral] = useState(
     initialData?.is_default_general || false
   );
-  const [content, setContent] = useState(initialData?.content || "");
+  const [content, setContent] = useState(initialData?.content || '');
   const [roomNumbers, setRoomNumbers] = useState<string[]>(
     initialData?.room_numbers || []
   );
-  const [roomInput, setRoomInput] = useState("");
-  const [isPending, startTransition] = useTransition();
+  const [roomInput, setRoomInput] = useState('');
+  const [isPending, setIsPending] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const isEditing = !!initialData;
+  const busy = isPending || submitting;
 
   const handleAddRoom = useCallback(
     (input: string) => {
       const newRooms = input
-        .split(",")
+        .split(',')
         .map((r) => r.trim())
         .filter((r) => r.length > 0 && !roomNumbers.includes(r));
       if (newRooms.length > 0) {
         setRoomNumbers((prev) => [...prev, ...newRooms]);
       }
-      setRoomInput("");
+      setRoomInput('');
     },
     [roomNumbers]
   );
 
   const handleRoomKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
+    if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
       handleAddRoom(roomInput);
     }
-    if (e.key === "Backspace" && roomInput === "" && roomNumbers.length > 0) {
+    if (e.key === 'Backspace' && roomInput === '' && roomNumbers.length > 0) {
       setRoomNumbers((prev) => prev.slice(0, -1));
     }
   };
@@ -104,50 +115,59 @@ export function KBForm({
     setRoomNumbers((prev) => prev.filter((r) => r !== room));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!name.trim()) {
-      toast.error("Name is required");
+      toast.error('Name is required');
       return;
     }
-    if (kind !== "general" && !propertyId) {
-      toast.error("Property is required for this KB kind");
+    if (kind !== 'general' && !propertyId) {
+      toast.error('Property is required for this KB kind');
       return;
     }
 
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const result = await onSubmit({
         name: name.trim(),
         kind,
-        property_id: kind === "general" ? null : propertyId,
-        is_default_general: kind === "general" ? isDefaultGeneral : false,
+        property_id: kind === 'general' ? null : propertyId,
+        is_default_general: kind === 'general' ? isDefaultGeneral : false,
         content,
-        room_numbers: kind === "general" ? [] : roomNumbers,
+        room_numbers: kind === 'general' ? [] : roomNumbers,
       });
-      if (result?.error) {
+      if (result && 'error' in result && result.error) {
         toast.error(result.error);
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   };
 
-  const handleDuplicate = () => {
+  const handleDuplicate = async () => {
     if (!onDuplicate) return;
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const result = await onDuplicate();
-      if (result?.error) {
+      if (result && 'error' in result && result.error) {
         toast.error(result.error);
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!onDelete) return;
     setDeleteDialogOpen(false);
-    startTransition(async () => {
+    setIsPending(true);
+    try {
       const result = await onDelete();
-      if (result?.error) {
+      if (result && 'error' in result && result.error) {
         toast.error(result.error);
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -169,10 +189,10 @@ export function KBForm({
           <Tabs
             value={kind}
             onValueChange={(val) => {
-              const newKind = val as "general" | "property" | "exception";
+              const newKind = val as 'general' | 'property' | 'exception';
               setKind(newKind);
-              if (newKind === "general") {
-                setPropertyId("");
+              if (newKind === 'general') {
+                setPropertyId('');
                 setRoomNumbers([]);
               }
             }}
@@ -185,7 +205,7 @@ export function KBForm({
           </Tabs>
         </div>
 
-        {kind === "general" && (
+        {kind === 'general' && (
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -200,11 +220,11 @@ export function KBForm({
           </div>
         )}
 
-        {kind !== "general" && (
+        {kind !== 'general' && (
           <>
             <div className="space-y-2">
               <Label>Property</Label>
-              <Select value={propertyId} onValueChange={(val) => setPropertyId(val || "")}>
+              <Select value={propertyId} onValueChange={(val) => setPropertyId(val || '')}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select a property..." />
                 </SelectTrigger>
@@ -242,8 +262,8 @@ export function KBForm({
                   }}
                   placeholder={
                     roomNumbers.length === 0
-                      ? "Type room numbers, separated by commas..."
-                      : ""
+                      ? 'Type room numbers, separated by commas...'
+                      : ''
                   }
                   className="flex-1 min-w-24 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 />
@@ -272,15 +292,15 @@ export function KBForm({
         <Separator />
 
         <div className="flex items-center gap-2">
-          <Button onClick={handleSubmit} disabled={isPending}>
-            {isPending ? "Saving..." : isEditing ? "Save Changes" : "Create Knowledge Base"}
+          <Button onClick={handleSubmit} disabled={busy}>
+            {busy ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Knowledge Base'}
           </Button>
 
           {isEditing && onDuplicate && (
             <Button
               variant="outline"
               onClick={handleDuplicate}
-              disabled={isPending}
+              disabled={busy}
             >
               <CopyIcon data-icon="inline-start" />
               Duplicate
@@ -291,7 +311,7 @@ export function KBForm({
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <DialogTrigger
                 render={
-                  <Button variant="destructive" disabled={isPending} />
+                  <Button variant="destructive" disabled={busy} />
                 }
               >
                 <Trash2Icon data-icon="inline-start" />
@@ -304,11 +324,11 @@ export function KBForm({
                     Are you sure you want to delete &quot;{initialData?.name}&quot;?
                     {roomNumbers.length > 0 && (
                       <>
-                        {" "}This will also remove {roomNumbers.length} room assignment
-                        {roomNumbers.length === 1 ? "" : "s"}.
+                        {' '}This will also remove {roomNumbers.length} room assignment
+                        {roomNumbers.length === 1 ? '' : 's'}.
                       </>
                     )}
-                    {" "}This action cannot be undone.
+                    {' '}This action cannot be undone.
                   </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
@@ -336,26 +356,26 @@ export function KBForm({
               <div className="flex items-center gap-2">
                 <Badge
                   className={
-                    kind === "general"
-                      ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-                      : kind === "property"
-                      ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                      : "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
+                    kind === 'general'
+                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                      : kind === 'property'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                      : 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
                   }
                   variant="secondary"
                 >
                   {kind}
                 </Badge>
-                {isDefaultGeneral && kind === "general" && (
+                {isDefaultGeneral && kind === 'general' && (
                   <Badge variant="outline">Default</Badge>
                 )}
               </div>
 
-              {kind !== "general" && propertyId && (
+              {kind !== 'general' && propertyId && (
                 <div className="text-sm text-muted-foreground">
-                  Property:{" "}
+                  Property:{' '}
                   <span className="text-foreground font-medium">
-                    {properties.find((p) => p.id === propertyId)?.name || "Unknown"}
+                    {properties.find((p) => p.id === propertyId)?.name || 'Unknown'}
                   </span>
                 </div>
               )}

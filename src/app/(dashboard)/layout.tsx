@@ -1,25 +1,25 @@
-import { redirect } from "next/navigation";
-import { getSession, destroySession } from "@/lib/session";
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
-import { Toaster } from "@/components/ui/sonner";
-import { AppSidebar } from "@/components/app-sidebar";
-import { UserMenu } from "@/components/user-menu";
+'use client';
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const session = await getSession();
-  if (!session) redirect("/login");
+import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import { Separator } from '@/components/ui/separator';
+import { AppSidebar } from '@/components/app-sidebar';
+import { UserMenu } from '@/components/user-menu';
+import { Loader2 } from 'lucide-react';
 
-  const displayName = session.displayName || "User";
+function DashboardShell({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
 
-  async function signOut() {
-    "use server";
-    await destroySession();
-    redirect("/login");
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (
@@ -30,11 +30,22 @@ export default async function DashboardLayout({
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
           <div className="flex-1" />
-          <UserMenu displayName={displayName} signOutAction={signOut} />
+          <UserMenu />
         </header>
         <main className="flex-1 p-6">{children}</main>
       </SidebarInset>
-      <Toaster position="bottom-right" />
     </SidebarProvider>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </AuthProvider>
   );
 }
