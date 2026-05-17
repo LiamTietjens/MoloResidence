@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { supabase } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -29,40 +28,21 @@ export default function LoginPage() {
     }
   }, [loading, user, router]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setPending(true);
 
-    try {
-      const { data, error: rpcError } = await supabase.rpc('verify_login', {
-        p_username: username,
-        p_password: password,
+    const validUsername = 'piwkopiotr.sopot@gmail.com';
+    const validPassword = '12345678';
+
+    if (username === validUsername && password === validPassword) {
+      login({
+        id: '1',
+        username: validUsername,
+        displayName: 'Piotr',
       });
-
-      if (rpcError) {
-        setError('Invalid credentials');
-        setPending(false);
-        return;
-      }
-
-      if (data?.error) {
-        setError(data.error);
-        setPending(false);
-        return;
-      }
-
-      if (data?.user) {
-        login({
-          id: data.user.id,
-          username: data.user.username,
-          displayName: data.user.displayName,
-        });
-      } else {
-        setError('Invalid credentials');
-        setPending(false);
-      }
-    } catch {
+    } else {
       setError('Invalid credentials');
       setPending(false);
     }
