@@ -51,10 +51,10 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
+    <Sidebar collapsible="none" className="border-r">
+      <SidebarHeader className="h-14 flex items-center border-b px-4">
         <Link href="/" className="flex items-center gap-2">
-          <span className="text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+          <span className="text-base font-semibold tracking-tight">
             Molo Residence
           </span>
         </Link>

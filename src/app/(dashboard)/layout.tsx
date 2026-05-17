@@ -1,8 +1,7 @@
 'use client';
 
 import { AuthProvider, useAuth } from '@/lib/auth-context';
-import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
-import { Separator } from '@/components/ui/separator';
+import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { UserMenu } from '@/components/user-menu';
 import { Loader2 } from 'lucide-react';
@@ -26,9 +25,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-2 h-4" />
+        <header className="flex h-14 shrink-0 items-center border-b px-6">
           <div className="flex-1" />
           <UserMenu />
         </header>
