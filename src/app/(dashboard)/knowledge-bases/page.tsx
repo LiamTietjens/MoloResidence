@@ -17,19 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { PlusIcon } from 'lucide-react';
-
-interface Property {
-  id: string;
-  name: string;
-}
+import { PlusIcon, Search } from 'lucide-react';
 
 interface KnowledgeBase {
   id: string;
@@ -51,27 +39,18 @@ const KIND_COLORS: Record<string, string> = {
 export default function KnowledgeBasesPage() {
   const router = useRouter();
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Filter state
   const [search, setSearch] = useState('');
-  const [propertyFilter, setPropertyFilter] = useState('all');
-  const [kindFilter, setKindFilter] = useState('all');
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
 
-      const [{ data: props }, { data: kbs }] = await Promise.all([
-        supabase.from('properties').select('id, name').order('name'),
-        supabase
-          .from('knowledge_bases')
-          .select('*, properties(name), knowledge_base_rooms(room_number)')
-          .order('updated_at', { ascending: false }),
-      ]);
+      const { data: kbs } = await supabase
+        .from('knowledge_bases')
+        .select('*, properties(name), knowledge_base_rooms(room_number)')
+        .order('updated_at', { ascending: false });
 
-      setProperties(props || []);
       setKnowledgeBases((kbs as KnowledgeBase[]) || []);
       setLoading(false);
     }
@@ -79,65 +58,50 @@ export default function KnowledgeBasesPage() {
     fetchData();
   }, []);
 
-  // Client-side filtering
   const filtered = knowledgeBases.filter((kb) => {
-    if (search && !kb.name.toLowerCase().includes(search.toLowerCase())) {
-      return false;
-    }
-    if (propertyFilter !== 'all' && kb.property_id !== propertyFilter) {
-      return false;
-    }
-    if (kindFilter !== 'all' && kb.kind !== kindFilter) {
-      return false;
-    }
-    return true;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      kb.name.toLowerCase().includes(q) ||
+      kb.kind.toLowerCase().includes(q) ||
+      (kb.properties?.name || '').toLowerCase().includes(q)
+    );
   });
+
+  function getRoomSummary(kb: KnowledgeBase): string {
+    const rooms = kb.knowledge_base_rooms || [];
+    if (rooms.length === 0) return '--';
+    if (rooms.length <= 3) {
+      return rooms.map((r) => r.room_number).join(', ');
+    }
+    return `${rooms.slice(0, 3).map((r) => r.room_number).join(', ')} +${rooms.length - 3} more`;
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Knowledge Bases</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Knowledge Bases</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Manage content that the AI agent uses during calls.
+          </p>
+        </div>
         <Button render={<Link href="/knowledge-bases/new" />}>
           <PlusIcon data-icon="inline-start" />
-          New KB
+          New Knowledge Base
         </Button>
       </div>
 
-      {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by name..."
+          placeholder="Search knowledge bases..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-64"
+          className="pl-9"
         />
-        <Select value={propertyFilter} onValueChange={(v) => setPropertyFilter(v ?? "all")}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="All Properties" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Properties</SelectItem>
-            {properties.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={kindFilter} onValueChange={(v) => setKindFilter(v ?? "all")}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="All Kinds" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Kinds</SelectItem>
-            <SelectItem value="general">General</SelectItem>
-            <SelectItem value="property">Property</SelectItem>
-            <SelectItem value="exception">Exception</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
-      {/* Table */}
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -145,34 +109,28 @@ export default function KnowledgeBasesPage() {
           ))}
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>Property</TableHead>
-              <TableHead>Rooms</TableHead>
-              <TableHead>Content Length</TableHead>
-              <TableHead>Updated</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length > 0 ? (
-              filtered.map((kb) => {
-                const rooms = kb.knowledge_base_rooms || [];
-                const displayRooms = rooms.slice(0, 3);
-                const extraCount = rooms.length - 3;
-
-                return (
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Kind</TableHead>
+                <TableHead>Property</TableHead>
+                <TableHead>Rooms</TableHead>
+                <TableHead>Content</TableHead>
+                <TableHead>Updated</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length > 0 ? (
+                filtered.map((kb) => (
                   <TableRow
                     key={kb.id}
-                    className="cursor-pointer"
+                    className="cursor-pointer hover:bg-muted/50"
                     onClick={() => router.push(`/knowledge-bases/detail?id=${kb.id}`)}
                   >
                     <TableCell>
-                      <span className="font-medium text-foreground hover:underline">
-                        {kb.name}
-                      </span>
+                      <span className="font-medium">{kb.name}</span>
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -183,24 +141,10 @@ export default function KnowledgeBasesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {kb.properties?.name || '\u2014'}
+                      {kb.properties?.name || 'General'}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        {displayRooms.map((r) => (
-                          <Badge key={r.room_number} variant="outline">
-                            {r.room_number}
-                          </Badge>
-                        ))}
-                        {extraCount > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            +{extraCount} more
-                          </span>
-                        )}
-                        {rooms.length === 0 && (
-                          <span className="text-muted-foreground">{'\u2014'}</span>
-                        )}
-                      </div>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {getRoomSummary(kb)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {kb.content
@@ -212,23 +156,25 @@ export default function KnowledgeBasesPage() {
                         ? formatDistanceToNow(new Date(kb.updated_at), {
                             addSuffix: true,
                           })
-                        : '\u2014'}
+                        : '--'}
                     </TableCell>
                   </TableRow>
-                );
-              })
-            ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={6}
-                  className="text-center text-muted-foreground py-8"
-                >
-                  No knowledge bases found.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="text-center text-muted-foreground py-12"
+                  >
+                    {search
+                      ? 'No knowledge bases match your search.'
+                      : 'No knowledge bases yet. Create one to get started.'}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );

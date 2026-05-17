@@ -1,24 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase-browser';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -28,77 +18,43 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { XIcon } from 'lucide-react';
 import Link from 'next/link';
 
-const propertySchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  address: z.string().min(1, 'Address is required'),
-  kwhotel_hotel_id: z.string().optional(),
-  transfer_phone: z.string().optional(),
-  aliases: z.string().optional(),
-  language_default: z.enum(['en', 'pl']),
-  timezone: z.string().min(1),
-  notes: z.string().optional(),
-});
-
-type PropertyFormData = z.infer<typeof propertySchema>;
-
-interface Property {
-  id: string;
-  name: string;
-  address: string;
-  kwhotel_hotel_id: number | null;
-  transfer_phone: string | null;
-  aliases: string[] | null;
-  language_default: string | null;
-  timezone: string | null;
-  notes: string | null;
-}
-
-const TIMEZONES = [
-  'Europe/Warsaw',
-  'Europe/Berlin',
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Amsterdam',
-  'Europe/Prague',
-  'Europe/Vienna',
-  'UTC',
-];
-
-export default function PropertyDetailPage() {
+function PropertyDetail() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const id = searchParams.get('id');
 
-  const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Room state
+  const [rooms, setRooms] = useState<string[]>([]);
+  const [newRoom, setNewRoom] = useState('');
+  const [addingRoom, setAddingRoom] = useState(false);
+
+  // Delete dialog
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<PropertyFormData>({
-    resolver: zodResolver(propertySchema),
-    defaultValues: {
-      name: '',
-      address: '',
-      kwhotel_hotel_id: '',
-      transfer_phone: '',
-      aliases: '',
-      language_default: 'en',
-      timezone: 'Europe/Warsaw',
-      notes: '',
-    },
-  });
+  const fetchRooms = useCallback(async () => {
+    if (!id) return;
 
-  const languageDefault = watch('language_default');
-  const timezone = watch('timezone');
+    const { data } = await supabase
+      .from('knowledge_base_rooms')
+      .select('room_number, knowledge_bases!inner(property_id)')
+      .eq('knowledge_bases.property_id', id);
+
+    if (data) {
+      const roomNumbers = data.map(
+        (r) => r.room_number
+      );
+      setRooms([...new Set(roomNumbers)].sort());
+    }
+  }, [id]);
 
   useEffect(() => {
     if (!id) {
@@ -109,7 +65,7 @@ export default function PropertyDetailPage() {
     async function fetchProperty() {
       const { data, error } = await supabase
         .from('properties')
-        .select('*')
+        .select('id, name, address')
         .eq('id', id)
         .single();
 
@@ -119,51 +75,124 @@ export default function PropertyDetailPage() {
         return;
       }
 
-      setProperty(data);
-      reset({
-        name: data.name || '',
-        address: data.address || '',
-        kwhotel_hotel_id: data.kwhotel_hotel_id?.toString() || '',
-        transfer_phone: data.transfer_phone || '',
-        aliases: Array.isArray(data.aliases) ? data.aliases.join(', ') : '',
-        language_default: data.language_default === 'pl' ? 'pl' : 'en',
-        timezone: data.timezone || 'Europe/Warsaw',
-        notes: data.notes || '',
-      });
+      setName(data.name || '');
+      setAddress(data.address || '');
       setLoading(false);
     }
 
     fetchProperty();
-  }, [id, router, reset]);
+    fetchRooms();
+  }, [id, router, fetchRooms]);
 
-  async function onSubmit(data: PropertyFormData) {
-    if (!id) return;
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
 
-    const aliasesArray = data.aliases
-      ? data.aliases.split(',').map((a) => a.trim()).filter(Boolean)
-      : [];
-
-    const { error } = await supabase
-      .from('properties')
-      .update({
-        name: data.name,
-        address: data.address,
-        kwhotel_hotel_id: data.kwhotel_hotel_id ? parseInt(data.kwhotel_hotel_id, 10) : null,
-        transfer_phone: data.transfer_phone || null,
-        aliases: aliasesArray,
-        language_default: data.language_default || 'en',
-        timezone: data.timezone || 'Europe/Warsaw',
-        notes: data.notes || null,
-      })
-      .eq('id', id);
-
-    if (error) {
-      toast.error(`Failed to save: ${error.message}`);
+    if (!name.trim() || !address.trim()) {
+      toast.error('Name and address are required.');
       return;
     }
 
-    toast.success('Property updated successfully');
-    router.push('/properties');
+    setSaving(true);
+
+    const { error } = await supabase
+      .from('properties')
+      .update({ name: name.trim(), address: address.trim() })
+      .eq('id', id!);
+
+    if (error) {
+      toast.error(`Failed to save: ${error.message}`);
+    } else {
+      toast.success('Property updated');
+    }
+
+    setSaving(false);
+  }
+
+  async function handleAddRoom() {
+    if (!newRoom.trim() || !id) return;
+
+    const roomNumber = newRoom.trim();
+
+    if (rooms.includes(roomNumber)) {
+      toast.error('Room already exists.');
+      return;
+    }
+
+    setAddingRoom(true);
+
+    // Find or create a property-kind KB for this property
+    let kbId: string | null = null;
+
+    const { data: existingKb } = await supabase
+      .from('knowledge_bases')
+      .select('id')
+      .eq('property_id', id)
+      .eq('kind', 'property')
+      .limit(1)
+      .single();
+
+    if (existingKb) {
+      kbId = existingKb.id;
+    } else {
+      // Create a property KB
+      const { data: newKb, error: kbError } = await supabase
+        .from('knowledge_bases')
+        .insert({
+          name: `${name} — main KB`,
+          kind: 'property',
+          property_id: id,
+        })
+        .select('id')
+        .single();
+
+      if (kbError || !newKb) {
+        toast.error(`Failed to create KB: ${kbError?.message}`);
+        setAddingRoom(false);
+        return;
+      }
+
+      kbId = newKb.id;
+    }
+
+    // Insert the room
+    const { error: roomError } = await supabase
+      .from('knowledge_base_rooms')
+      .insert({ knowledge_base_id: kbId, room_number: roomNumber });
+
+    if (roomError) {
+      toast.error(`Failed to add room: ${roomError.message}`);
+    } else {
+      setRooms((prev) => [...prev, roomNumber].sort());
+      setNewRoom('');
+    }
+
+    setAddingRoom(false);
+  }
+
+  async function handleRemoveRoom(roomNumber: string) {
+    if (!id) return;
+
+    // Get KB IDs for this property
+    const { data: kbs } = await supabase
+      .from('knowledge_bases')
+      .select('id')
+      .eq('property_id', id);
+
+    if (!kbs || kbs.length === 0) return;
+
+    const kbIds = kbs.map((kb) => kb.id);
+
+    const { error } = await supabase
+      .from('knowledge_base_rooms')
+      .delete()
+      .in('knowledge_base_id', kbIds)
+      .eq('room_number', roomNumber);
+
+    if (error) {
+      toast.error(`Failed to remove room: ${error.message}`);
+    } else {
+      setRooms((prev) => prev.filter((r) => r !== roomNumber));
+    }
   }
 
   async function handleDelete() {
@@ -184,176 +213,153 @@ export default function PropertyDetailPage() {
 
   if (!id) {
     return (
-      <div className="space-y-6 max-w-2xl">
-        <Card className="p-8 text-center text-destructive">
-          No property ID provided. Please select a property from the list.
-        </Card>
+      <div className="max-w-lg">
+        <p className="text-destructive">
+          No property ID provided.
+        </p>
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="space-y-6 max-w-2xl">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Edit Property</h1>
-        </div>
-        <Card className="p-8 text-center text-muted-foreground">Loading...</Card>
+      <div className="max-w-lg space-y-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Property</h1>
+        <p className="text-muted-foreground">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Edit Property</h1>
+    <div className="max-w-lg space-y-10">
+      {/* Property Details */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight">Property</h1>
+          <Button variant="outline" render={<Link href="/properties" />}>
+            Back
+          </Button>
+        </div>
+
+        <form onSubmit={handleSave} className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Property name"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="address">Address</Label>
+            <Input
+              id="address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Full address"
+              required
+            />
+          </div>
+
+          <Button type="submit" disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </Button>
+        </form>
       </div>
 
-      <Card className="p-6">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="name">Name *</Label>
-            <Input id="name" {...register('name')} placeholder="Property name" />
-            {errors.name && (
-              <p className="text-sm text-destructive">{errors.name.message}</p>
-            )}
-          </div>
+      {/* Room Numbers */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-medium tracking-tight">Room Numbers</h2>
 
-          <div className="space-y-2">
-            <Label htmlFor="address">Address *</Label>
-            <Input id="address" {...register('address')} placeholder="Full address" />
-            {errors.address && (
-              <p className="text-sm text-destructive">{errors.address.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="kwhotel_hotel_id">KW Hotel ID</Label>
-            <Input
-              id="kwhotel_hotel_id"
-              type="number"
-              {...register('kwhotel_hotel_id')}
-              placeholder="Optional numeric ID"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="transfer_phone">Transfer Phone</Label>
-            <Input
-              id="transfer_phone"
-              {...register('transfer_phone')}
-              placeholder="+48..."
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="aliases">Aliases</Label>
-            <Input
-              id="aliases"
-              {...register('aliases')}
-              placeholder="Alt name 1, Alt name 2, ..."
-            />
-            <p className="text-xs text-muted-foreground">
-              Comma-separated alternative names guests might use.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Language Default *</Label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  value="en"
-                  checked={languageDefault === 'en'}
-                  onChange={() => setValue('language_default', 'en')}
-                  className="accent-primary"
-                />
-                <span className="text-sm">English</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  value="pl"
-                  checked={languageDefault === 'pl'}
-                  onChange={() => setValue('language_default', 'pl')}
-                  className="accent-primary"
-                />
-                <span className="text-sm">Polish</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Timezone</Label>
-            <Select
-              value={timezone}
-              onValueChange={(val) => setValue('timezone', val ?? 'Europe/Warsaw')}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select timezone" />
-              </SelectTrigger>
-              <SelectContent>
-                {TIMEZONES.map((tz) => (
-                  <SelectItem key={tz} value={tz}>
-                    {tz}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
-            <Textarea
-              id="notes"
-              {...register('notes')}
-              placeholder="Internal notes about this property..."
-            />
-          </div>
-
-          <div className="flex items-center gap-3 pt-2">
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : 'Save Changes'}
-            </Button>
-            <Button variant="outline" render={<Link href="/properties" />}>
-              Cancel
-            </Button>
-            <div className="flex-1" />
-            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-              <DialogTrigger
-                render={<Button variant="destructive" type="button" />}
+        {rooms.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {rooms.map((room) => (
+              <Badge
+                key={room}
+                variant="secondary"
+                className="gap-1.5 pl-2.5 pr-1.5 py-1 h-auto text-sm"
               >
-                Delete
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Delete Property</DialogTitle>
-                  <DialogDescription>
-                    This will permanently delete this property and all associated
-                    knowledge bases. This action cannot be undone.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setDeleteOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={handleDelete}
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Deleting...' : 'Delete Property'}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+                {room}
+                <button
+                  type="button"
+                  onClick={() => handleRemoveRoom(room)}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-foreground/10 transition-colors"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </Badge>
+            ))}
           </div>
-        </form>
-      </Card>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No rooms assigned yet.
+          </p>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Input
+            value={newRoom}
+            onChange={(e) => setNewRoom(e.target.value)}
+            placeholder="Room number"
+            className="w-40"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddRoom();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleAddRoom}
+            disabled={addingRoom || !newRoom.trim()}
+          >
+            {addingRoom ? 'Adding...' : 'Add'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Delete */}
+      <div className="border-t pt-8">
+        <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <DialogTrigger render={<Button variant="destructive" type="button" />}>
+            Delete Property
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Property</DialogTitle>
+              <DialogDescription>
+                This will permanently delete this property and all associated
+                data. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
+  );
+}
+
+export default function PropertyDetailPage() {
+  return (
+    <Suspense fallback={<div className="max-w-lg"><p className="text-muted-foreground">Loading...</p></div>}>
+      <PropertyDetail />
+    </Suspense>
   );
 }

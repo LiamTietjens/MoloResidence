@@ -189,6 +189,8 @@ function DetailContent() {
     );
   }
 
+  const roomNumbers = (kb.knowledge_base_rooms || []).map((r: { room_number: string }) => r.room_number);
+
   const initialData = {
     id: kb.id,
     name: kb.name,
@@ -196,7 +198,8 @@ function DetailContent() {
     property_id: kb.property_id,
     is_default_general: kb.is_default_general || false,
     content: kb.content || '',
-    room_numbers: (kb.knowledge_base_rooms || []).map((r) => r.room_number),
+    room_numbers: roomNumbers,
+    assignment: roomNumbers.length > 0 ? 'specific_rooms' as const : 'entire_property' as const,
   };
 
   return (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, KeyboardEvent } from 'react';
+import { useState, useEffect, useCallback, KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,6 +28,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { XIcon, CopyIcon, Trash2Icon } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase-browser';
 
 interface Property {
   id: string;
@@ -41,6 +42,7 @@ export interface KBFormData {
   is_default_general: boolean;
   content: string;
   room_numbers: string[];
+  assignment: 'entire_property' | 'specific_rooms';
 }
 
 interface KBFormProps {
@@ -53,6 +55,7 @@ interface KBFormProps {
     is_default_general: boolean;
     content: string;
     room_numbers: string[];
+    assignment: 'entire_property' | 'specific_rooms';
   };
   onSubmit: (data: KBFormData) => Promise<{ error?: string } | void>;
   onDuplicate?: () => Promise<{ error?: string } | void>;
@@ -77,15 +80,42 @@ export function KBForm({
     initialData?.is_default_general || false
   );
   const [content, setContent] = useState(initialData?.content || '');
+  const [assignment, setAssignment] = useState<'entire_property' | 'specific_rooms'>(
+    initialData?.assignment || 'entire_property'
+  );
   const [roomNumbers, setRoomNumbers] = useState<string[]>(
     initialData?.room_numbers || []
   );
   const [roomInput, setRoomInput] = useState('');
+  const [availableRooms, setAvailableRooms] = useState<string[]>([]);
   const [isPending, setIsPending] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const isEditing = !!initialData;
   const busy = isPending || submitting;
+
+  // Fetch available rooms when property changes
+  useEffect(() => {
+    if (!propertyId || kind === 'general') {
+      setAvailableRooms([]);
+      return;
+    }
+
+    async function fetchRooms() {
+      const { data } = await supabase
+        .from('knowledge_base_rooms')
+        .select('room_number')
+        .eq('property_id', propertyId);
+
+      if (data) {
+        const rooms = [...new Set(data.map((r: { room_number: string }) => r.room_number))];
+        rooms.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        setAvailableRooms(rooms);
+      }
+    }
+
+    fetchRooms();
+  }, [propertyId, kind]);
 
   const handleAddRoom = useCallback(
     (input: string) => {
@@ -115,6 +145,14 @@ export function KBForm({
     setRoomNumbers((prev) => prev.filter((r) => r !== room));
   };
 
+  const toggleRoom = (room: string) => {
+    if (roomNumbers.includes(room)) {
+      removeRoom(room);
+    } else {
+      setRoomNumbers((prev) => [...prev, room]);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!name.trim()) {
       toast.error('Name is required');
@@ -134,6 +172,7 @@ export function KBForm({
         is_default_general: kind === 'general' ? isDefaultGeneral : false,
         content,
         room_numbers: kind === 'general' ? [] : roomNumbers,
+        assignment: kind === 'general' ? 'entire_property' : assignment,
       });
       if (result && 'error' in result && result.error) {
         toast.error(result.error);
@@ -171,7 +210,7 @@ export function KBForm({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* Left: Form */}
       <div className="space-y-6">
         <div className="space-y-2">
@@ -194,6 +233,7 @@ export function KBForm({
               if (newKind === 'general') {
                 setPropertyId('');
                 setRoomNumbers([]);
+                setAssignment('entire_property');
               }
             }}
           >
@@ -212,10 +252,10 @@ export function KBForm({
               id="is_default_general"
               checked={isDefaultGeneral}
               onChange={(e) => setIsDefaultGeneral(e.target.checked)}
-              className="h-4 w-4 rounded border-input"
+              className="h-4 w-4 rounded border-input accent-primary"
             />
             <Label htmlFor="is_default_general">
-              Default general knowledge base (loaded at every call start)
+              Default general KB (loaded at every call start)
             </Label>
           </div>
         )}
@@ -224,7 +264,10 @@ export function KBForm({
           <>
             <div className="space-y-2">
               <Label>Property</Label>
-              <Select value={propertyId} onValueChange={(val) => setPropertyId(val || '')}>
+              <Select value={propertyId} onValueChange={(val) => {
+                setPropertyId(val || '');
+                setRoomNumbers([]);
+              }}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select a property..." />
                 </SelectTrigger>
@@ -238,40 +281,100 @@ export function KBForm({
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Room Numbers</Label>
-              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 py-2 min-h-[2rem] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
-                {roomNumbers.map((room) => (
-                  <Badge key={room} variant="secondary" className="gap-1">
-                    {room}
-                    <button
-                      type="button"
-                      onClick={() => removeRoom(room)}
-                      className="ml-0.5 hover:text-destructive"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </Badge>
-                ))}
-                <input
-                  value={roomInput}
-                  onChange={(e) => setRoomInput(e.target.value)}
-                  onKeyDown={handleRoomKeyDown}
-                  onBlur={() => {
-                    if (roomInput.trim()) handleAddRoom(roomInput);
-                  }}
-                  placeholder={
-                    roomNumbers.length === 0
-                      ? 'Type room numbers, separated by commas...'
-                      : ''
-                  }
-                  className="flex-1 min-w-24 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                />
+            {propertyId && (
+              <div className="space-y-3">
+                <Label>Room Assignment</Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="assignment"
+                      value="entire_property"
+                      checked={assignment === 'entire_property'}
+                      onChange={() => {
+                        setAssignment('entire_property');
+                        setRoomNumbers([]);
+                      }}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    <span className="text-sm">Entire property</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="assignment"
+                      value="specific_rooms"
+                      checked={assignment === 'specific_rooms'}
+                      onChange={() => setAssignment('specific_rooms')}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    <span className="text-sm">Specific rooms</span>
+                  </label>
+                </div>
+
+                {assignment === 'entire_property' && (
+                  <p className="text-xs text-muted-foreground">
+                    This KB will apply to all rooms in the selected property.
+                  </p>
+                )}
+
+                {assignment === 'specific_rooms' && (
+                  <div className="space-y-3">
+                    {availableRooms.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Select from known rooms or type new ones below:
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {availableRooms.map((room) => (
+                            <Badge
+                              key={room}
+                              variant={roomNumbers.includes(room) ? 'default' : 'outline'}
+                              className="cursor-pointer select-none"
+                              onClick={() => toggleRoom(room)}
+                            >
+                              {room}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 py-2 min-h-[2.5rem] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
+                      {roomNumbers.map((room) => (
+                        <Badge key={room} variant="secondary" className="gap-1">
+                          {room}
+                          <button
+                            type="button"
+                            onClick={() => removeRoom(room)}
+                            className="ml-0.5 hover:text-destructive"
+                          >
+                            <XIcon className="size-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                      <input
+                        value={roomInput}
+                        onChange={(e) => setRoomInput(e.target.value)}
+                        onKeyDown={handleRoomKeyDown}
+                        onBlur={() => {
+                          if (roomInput.trim()) handleAddRoom(roomInput);
+                        }}
+                        placeholder={
+                          roomNumbers.length === 0
+                            ? 'Type room numbers, separated by commas...'
+                            : ''
+                        }
+                        className="flex-1 min-w-24 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Press Enter or comma to add. Backspace to remove the last room.
+                    </p>
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                Press Enter or comma to add. Backspace to remove the last room.
-              </p>
-            </div>
+            )}
           </>
         )}
 
@@ -282,7 +385,7 @@ export function KBForm({
             value={content}
             onChange={(e) => setContent(e.target.value)}
             placeholder="Enter the knowledge base content the AI agent will use..."
-            className="font-mono min-h-[500px]"
+            className="font-mono min-h-[400px] text-sm leading-relaxed"
           />
           <p className="text-xs text-muted-foreground">
             {content.length.toLocaleString()} characters
@@ -349,7 +452,7 @@ export function KBForm({
       <div className="lg:sticky lg:top-6 lg:self-start">
         <Card>
           <CardHeader>
-            <CardTitle>What the AI will see</CardTitle>
+            <CardTitle className="text-base">Live Preview</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -369,6 +472,9 @@ export function KBForm({
                 {isDefaultGeneral && kind === 'general' && (
                   <Badge variant="outline">Default</Badge>
                 )}
+                {kind !== 'general' && assignment === 'entire_property' && (
+                  <Badge variant="outline">All rooms</Badge>
+                )}
               </div>
 
               {kind !== 'general' && propertyId && (
@@ -380,7 +486,7 @@ export function KBForm({
                 </div>
               )}
 
-              {roomNumbers.length > 0 && (
+              {assignment === 'specific_rooms' && roomNumbers.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {roomNumbers.map((room) => (
                     <Badge key={room} variant="outline">
@@ -392,14 +498,14 @@ export function KBForm({
 
               <Separator />
 
-              <div className="rounded-md bg-muted/50 p-4 max-h-[600px] overflow-y-auto">
+              <div className="rounded-md bg-muted/50 p-4 max-h-[500px] overflow-y-auto">
                 {content ? (
-                  <pre className="font-mono text-sm whitespace-pre-wrap break-words text-foreground">
+                  <pre className="font-mono text-sm whitespace-pre-wrap break-words text-foreground leading-relaxed">
                     {content}
                   </pre>
                 ) : (
                   <p className="text-sm text-muted-foreground italic">
-                    No content yet. Start typing in the content field to preview.
+                    No content yet. Start typing to preview.
                   </p>
                 )}
               </div>

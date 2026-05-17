@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -14,37 +12,66 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Card } from '@/components/ui/card';
 import { PlusIcon } from 'lucide-react';
 import Link from 'next/link';
 
-interface Property {
+interface PropertyWithRoomCount {
   id: string;
   name: string;
   address: string;
-  kwhotel_hotel_id: number | null;
-  language_default: string | null;
-  updated_at: string | null;
+  room_count: number;
 }
 
 export default function PropertiesPage() {
   const router = useRouter();
-  const [properties, setProperties] = useState<Property[]>([]);
+  const [properties, setProperties] = useState<PropertyWithRoomCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchProperties() {
-      const { data, error: fetchError } = await supabase
+      // Fetch properties
+      const { data: propertiesData, error: propError } = await supabase
         .from('properties')
-        .select('*')
+        .select('id, name, address')
         .order('name', { ascending: true });
 
-      if (fetchError) {
-        setError(fetchError.message);
-      } else {
-        setProperties(data ?? []);
+      if (propError) {
+        setError(propError.message);
+        setLoading(false);
+        return;
       }
+
+      // Fetch room counts per property through knowledge_bases
+      const { data: roomData, error: roomError } = await supabase
+        .from('knowledge_base_rooms')
+        .select('knowledge_base_id, room_number, knowledge_bases!inner(property_id)')
+        .not('knowledge_bases.property_id', 'is', null);
+
+      if (roomError) {
+        // If room query fails, still show properties with 0 counts
+        setProperties(
+          (propertiesData ?? []).map((p) => ({ ...p, room_count: 0 }))
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Count rooms per property
+      const countMap: Record<string, number> = {};
+      for (const row of roomData ?? []) {
+        const kb = row.knowledge_bases as unknown as { property_id: string };
+        if (kb?.property_id) {
+          countMap[kb.property_id] = (countMap[kb.property_id] || 0) + 1;
+        }
+      }
+
+      setProperties(
+        (propertiesData ?? []).map((p) => ({
+          ...p,
+          room_count: countMap[p.id] || 0,
+        }))
+      );
       setLoading(false);
     }
 
@@ -53,45 +80,43 @@ export default function PropertiesPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Properties</h1>
         </div>
-        <Card className="p-8 text-center text-muted-foreground">Loading...</Card>
+        <p className="text-muted-foreground">Loading...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Properties</h1>
         </div>
-        <Card className="p-8 text-center text-destructive">Error: {error}</Card>
+        <p className="text-destructive">Error: {error}</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Properties</h1>
         <Button render={<Link href="/properties/new" />}>
           <PlusIcon data-icon="inline-start" />
-          New property
+          New Property
         </Button>
       </div>
 
-      <Card className="p-0">
+      <div className="rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Address</TableHead>
-              <TableHead>KW Hotel ID</TableHead>
-              <TableHead>Language</TableHead>
-              <TableHead>Updated</TableHead>
+              <TableHead className="text-right">Rooms</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -100,47 +125,34 @@ export default function PropertiesPage() {
                 <TableRow
                   key={property.id}
                   className="cursor-pointer"
-                  onClick={() => router.push(`/properties/detail?id=${property.id}`)}
+                  onClick={() =>
+                    router.push(`/properties/detail?id=${property.id}`)
+                  }
                 >
-                  <TableCell>
-                    <span className="font-medium text-foreground hover:underline">
-                      {property.name}
-                    </span>
+                  <TableCell className="font-medium">
+                    {property.name}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {property.address}
                   </TableCell>
-                  <TableCell>
-                    {property.kwhotel_hotel_id != null ? (
-                      property.kwhotel_hotel_id
-                    ) : (
-                      <span className="italic text-muted-foreground">None</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">
-                      {property.language_default?.toUpperCase() ?? 'EN'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {property.updated_at
-                      ? formatDistanceToNow(new Date(property.updated_at), {
-                          addSuffix: true,
-                        })
-                      : '\u2014'}
+                  <TableCell className="text-right text-muted-foreground">
+                    {property.room_count}
                   </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                  No properties found. Create your first property to get started.
+                <TableCell
+                  colSpan={3}
+                  className="py-12 text-center text-muted-foreground"
+                >
+                  No properties yet. Create your first property to get started.
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
-      </Card>
+      </div>
     </div>
   );
 }

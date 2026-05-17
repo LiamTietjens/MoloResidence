@@ -31,6 +31,7 @@ export default function NewKnowledgeBasePage() {
   }, []);
 
   async function handleCreate(data: KBFormData) {
+    // Insert the knowledge base
     const { data: kb, error } = await supabase
       .from('knowledge_bases')
       .insert({
@@ -47,19 +48,38 @@ export default function NewKnowledgeBasePage() {
       return { error: error.message };
     }
 
-    // Insert room assignments for non-general KBs
-    if (data.kind !== 'general' && data.room_numbers.length > 0) {
-      const roomRows = data.room_numbers.map((room_number) => ({
-        knowledge_base_id: kb.id,
-        room_number: room_number.trim(),
-      }));
+    // Handle room assignments
+    if (data.kind !== 'general' && data.property_id) {
+      let roomsToAssign: string[] = [];
 
-      const { error: roomError } = await supabase
-        .from('knowledge_base_rooms')
-        .insert(roomRows);
+      if (data.assignment === 'entire_property') {
+        // Fetch all rooms for this property and assign them
+        const { data: existingRooms } = await supabase
+          .from('knowledge_base_rooms')
+          .select('room_number')
+          .eq('property_id', data.property_id);
 
-      if (roomError) {
-        return { error: roomError.message };
+        if (existingRooms && existingRooms.length > 0) {
+          roomsToAssign = [...new Set(existingRooms.map((r: { room_number: string }) => r.room_number))];
+        }
+      } else {
+        roomsToAssign = data.room_numbers;
+      }
+
+      if (roomsToAssign.length > 0) {
+        const roomRows = roomsToAssign.map((room_number) => ({
+          knowledge_base_id: kb.id,
+          property_id: data.property_id,
+          room_number: room_number.trim(),
+        }));
+
+        const { error: roomError } = await supabase
+          .from('knowledge_base_rooms')
+          .insert(roomRows);
+
+        if (roomError) {
+          return { error: roomError.message };
+        }
       }
     }
 
@@ -71,13 +91,13 @@ export default function NewKnowledgeBasePage() {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-4">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-[500px] w-full" />
+            <Skeleton className="h-[400px] w-full" />
           </div>
-          <Skeleton className="h-[400px] w-full" />
+          <Skeleton className="h-[300px] w-full" />
         </div>
       </div>
     );
