@@ -1,97 +1,129 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase-browser";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 
-interface Rule {
+interface UrgencyRule {
   id: string;
-  name: string;
   level: string;
-  keywords: string[];
+  name: string;
   examples: string[];
+  keywords: string[];
   sort_order: number;
 }
 
-interface FormData {
-  name: string;
-  level: string;
-  keywords: string;
-  examples: string;
-  sort_order: number;
-}
-
-const levelColors: Record<string, string> = {
-  critical: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  high: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
-  medium:
-    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  low: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
-};
+const LEVELS = [
+  { level: "critical", label: "Critical", color: "bg-red-100 text-red-800 border-red-200" },
+  { level: "high", label: "High", color: "bg-orange-100 text-orange-800 border-orange-200" },
+  { level: "medium", label: "Medium", color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
+] as const;
 
 export default function UrgencyRulesPage() {
-  const [rules, setRules] = useState<Rule[]>([]);
+  const [rules, setRules] = useState<Record<string, UrgencyRule>>({});
+  const [texts, setTexts] = useState<Record<string, string>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
+
+  useEffect(() => {
+    fetchRules();
+    return () => {
+      Object.values(debounceTimers.current).forEach(clearTimeout);
+    };
+  }, []);
 
   async function fetchRules() {
     const { data, error } = await supabase
       .from("urgency_rules")
       .select("*")
-      .order("sort_order", { ascending: true });
+      .in("level", ["critical", "high", "medium"]);
 
     if (error) {
       toast.error("Failed to load urgency rules");
-    } else {
-      setRules(data || []);
+      setLoading(false);
+      return;
     }
+
+    const existingLevels = (data || []).map((r: UrgencyRule) => r.level);
+    const missing = LEVELS.filter((l) => !existingLevels.includes(l.level));
+
+    let allRules = data || [];
+
+    if (missing.length > 0) {
+      const inserts = missing.map((l, i) => ({
+        level: l.level,
+        name: l.label,
+        examples: [],
+        keywords: [],
+        sort_order: LEVELS.findIndex((lv) => lv.level === l.level) + 1,
+      }));
+
+      const { data: inserted, error: insertError } = await supabase
+        .from("urgency_rules")
+        .insert(inserts)
+        .select();
+
+      if (insertError) {
+        toast.error("Failed to initialize rules");
+      } else {
+        allRules = [...allRules, ...(inserted || [])];
+      }
+    }
+
+    const rulesMap: Record<string, UrgencyRule> = {};
+    const textsMap: Record<string, string> = {};
+
+    for (const rule of allRules) {
+      rulesMap[rule.level] = rule;
+      textsMap[rule.level] = Array.isArray(rule.examples)
+        ? rule.examples.join("\n")
+        : "";
+    }
+
+    setRules(rulesMap);
+    setTexts(textsMap);
     setLoading(false);
   }
 
-  useEffect(() => {
-    fetchRules();
-  }, []);
+  const saveRule = useCallback(async (level: string, text: string) => {
+    const rule = rules[level];
+    if (!rule) return;
 
-  function openCreate() {
-    setEditingRule(null);
-    setDialogOpen(true);
-  }
-
-  function openEdit(rule: Rule) {
-    setEditingRule(rule);
-    setDialogOpen(true);
-  }
-
-  async function handleDelete(rule: Rule) {
-    if (!confirm(`Delete urgency rule "${rule.name}"?`)) return;
+    const examples = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
 
     const { error } = await supabase
       .from("urgency_rules")
-      .delete()
+      .update({ examples })
       .eq("id", rule.id);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(`Failed to save ${level} rule`);
     } else {
-      toast.success("Rule deleted");
-      fetchRules();
+      setSaved((prev) => ({ ...prev, [level]: true }));
+      setTimeout(() => {
+        setSaved((prev) => ({ ...prev, [level]: false }));
+      }, 2000);
     }
+  }, [rules]);
+
+  function handleTextChange(level: string, value: string) {
+    setTexts((prev) => ({ ...prev, [level]: value }));
+    setSaved((prev) => ({ ...prev, [level]: false }));
+
+    if (debounceTimers.current[level]) {
+      clearTimeout(debounceTimers.current[level]);
+    }
+
+    debounceTimers.current[level] = setTimeout(() => {
+      saveRule(level, value);
+    }, 1000);
   }
 
   if (loading) {
@@ -107,234 +139,41 @@ export default function UrgencyRulesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Urgency Rules</h1>
-      <p className="text-sm text-muted-foreground">
-        Define urgency levels for maintenance tickets. Rules are displayed in
-        priority order (lowest sort_order = highest priority).
-      </p>
-
-      <div className="flex justify-end">
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Rule
-        </Button>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Urgency Rules</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Define examples and descriptions for each urgency level. Changes are saved automatically.
+        </p>
       </div>
 
-      <div className="space-y-4">
-        {rules.map((rule) => (
-          <Card key={rule.id}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <div className="flex items-center gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {LEVELS.map(({ level, label, color }) => (
+          <Card key={level} className="flex flex-col">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
                 <span
-                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    levelColors[rule.level] || levelColors.low
-                  }`}
+                  className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${color}`}
                 >
-                  {rule.level}
+                  {label}
                 </span>
-                <CardTitle className="text-base">{rule.name}</CardTitle>
-                <span className="text-xs text-muted-foreground">
-                  (order: {rule.sort_order})
-                </span>
-              </div>
-              <div className="flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => openEdit(rule)}
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDelete(rule)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {saved[level] && (
+                  <span className="text-xs text-green-600 font-medium animate-in fade-in">
+                    Saved
+                  </span>
+                )}
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {rule.examples && rule.examples.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">
-                    Examples
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {rule.examples.map((ex, i) => (
-                      <Badge key={i} variant="secondary">
-                        {ex}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {rule.keywords && rule.keywords.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">
-                    Keywords
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {rule.keywords.map((kw, i) => (
-                      <Badge key={i} variant="outline">
-                        {kw}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
+            <CardContent className="flex-1">
+              <Textarea
+                value={texts[level] || ""}
+                onChange={(e) => handleTextChange(level, e.target.value)}
+                placeholder={`Describe ${label.toLowerCase()} urgency situations, one per line...`}
+                className="min-h-[180px] resize-y"
+              />
             </CardContent>
           </Card>
         ))}
-        {rules.length === 0 && (
-          <p className="text-center text-muted-foreground py-8">
-            No urgency rules defined
-          </p>
-        )}
       </div>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {editingRule ? "Edit Rule" : "Add Rule"}
-            </DialogTitle>
-          </DialogHeader>
-          <RuleForm
-            rule={editingRule}
-            onClose={() => {
-              setDialogOpen(false);
-              fetchRules();
-            }}
-          />
-        </DialogContent>
-      </Dialog>
     </div>
-  );
-}
-
-function RuleForm({
-  rule,
-  onClose,
-}: {
-  rule: Rule | null;
-  onClose: () => void;
-}) {
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    defaultValues: rule
-      ? {
-          name: rule.name,
-          level: rule.level,
-          keywords: rule.keywords?.join(", ") || "",
-          examples: rule.examples?.join(", ") || "",
-          sort_order: rule.sort_order,
-        }
-      : {
-          name: "",
-          level: "",
-          keywords: "",
-          examples: "",
-          sort_order: 0,
-        },
-  });
-
-  async function onSubmit(data: FormData) {
-    const payload = {
-      name: data.name,
-      level: data.level,
-      keywords: data.keywords
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      examples: data.examples
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      sort_order: Number(data.sort_order),
-    };
-
-    if (rule) {
-      const { error } = await supabase
-        .from("urgency_rules")
-        .update(payload)
-        .eq("id", rule.id);
-
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      toast.success("Rule updated");
-    } else {
-      const { error } = await supabase.from("urgency_rules").insert(payload);
-
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      toast.success("Rule created");
-    }
-
-    onClose();
-  }
-
-  return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="rule-name">Name</Label>
-        <Input id="rule-name" {...register("name")} />
-        {errors.name && (
-          <p className="text-xs text-destructive">{errors.name.message}</p>
-        )}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="rule-level">Level</Label>
-        <Input
-          id="rule-level"
-          placeholder="critical, high, medium, or low"
-          {...register("level")}
-        />
-        {errors.level && (
-          <p className="text-xs text-destructive">{errors.level.message}</p>
-        )}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="rule-keywords">Keywords (comma-separated)</Label>
-        <Input
-          id="rule-keywords"
-          placeholder="flood, fire, gas leak"
-          {...register("keywords")}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="rule-examples">Examples (comma-separated)</Label>
-        <Input
-          id="rule-examples"
-          placeholder="Water leaking from ceiling, Smoke in room"
-          {...register("examples")}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="rule-sort_order">Sort Order</Label>
-        <Input
-          id="rule-sort_order"
-          type="number"
-          {...register("sort_order")}
-        />
-        {errors.sort_order && (
-          <p className="text-xs text-destructive">
-            {errors.sort_order.message}
-          </p>
-        )}
-      </div>
-      <DialogFooter>
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Saving..." : rule ? "Save Changes" : "Create Rule"}
-        </Button>
-      </DialogFooter>
-    </form>
   );
 }

@@ -25,11 +25,9 @@ export default function NewPropertyPage() {
 
     setSubmitting(true);
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('properties')
-      .insert({ name: name.trim(), address: address.trim() })
-      .select('id')
-      .single();
+      .insert({ name: name.trim(), address: address.trim() });
 
     if (error) {
       toast.error(`Failed to create property: ${error.message}`);
@@ -38,7 +36,7 @@ export default function NewPropertyPage() {
     }
 
     toast.success('Property created');
-    router.push(`/properties/detail?id=${data.id}`);
+    router.push('/properties');
   }
 
   return (

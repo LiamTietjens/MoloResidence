@@ -3,10 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -17,24 +15,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PlusIcon, Search } from 'lucide-react';
+import { PlusIcon, Search, BookOpen } from 'lucide-react';
 
 interface KnowledgeBase {
   id: string;
   name: string;
-  kind: 'general' | 'property' | 'exception';
-  property_id: string | null;
   content: string | null;
   updated_at: string | null;
-  properties: { name: string } | null;
   knowledge_base_rooms: { room_number: string }[];
 }
-
-const KIND_COLORS: Record<string, string> = {
-  general: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  property: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  exception: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-};
 
 export default function KnowledgeBasesPage() {
   const router = useRouter();
@@ -48,7 +37,7 @@ export default function KnowledgeBasesPage() {
 
       const { data: kbs } = await supabase
         .from('knowledge_bases')
-        .select('*, properties(name), knowledge_base_rooms(room_number)')
+        .select('id, name, content, updated_at, knowledge_base_rooms(room_number)')
         .order('updated_at', { ascending: false });
 
       setKnowledgeBases((kbs as KnowledgeBase[]) || []);
@@ -61,20 +50,14 @@ export default function KnowledgeBasesPage() {
   const filtered = knowledgeBases.filter((kb) => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return (
-      kb.name.toLowerCase().includes(q) ||
-      kb.kind.toLowerCase().includes(q) ||
-      (kb.properties?.name || '').toLowerCase().includes(q)
-    );
+    return kb.name.toLowerCase().includes(q);
   });
 
-  function getRoomSummary(kb: KnowledgeBase): string {
-    const rooms = kb.knowledge_base_rooms || [];
-    if (rooms.length === 0) return '--';
-    if (rooms.length <= 3) {
-      return rooms.map((r) => r.room_number).join(', ');
-    }
-    return `${rooms.slice(0, 3).map((r) => r.room_number).join(', ')} +${rooms.length - 3} more`;
+  function getContentPreview(content: string | null): string {
+    if (!content) return 'No content';
+    const trimmed = content.trim();
+    if (trimmed.length <= 80) return trimmed;
+    return trimmed.slice(0, 80) + '...';
   }
 
   return (
@@ -114,11 +97,8 @@ export default function KnowledgeBasesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead>Property</TableHead>
-                <TableHead>Rooms</TableHead>
+                <TableHead>Assigned Rooms</TableHead>
                 <TableHead>Content</TableHead>
-                <TableHead>Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -130,40 +110,25 @@ export default function KnowledgeBasesPage() {
                     onClick={() => router.push(`/knowledge-bases/detail?id=${kb.id}`)}
                   >
                     <TableCell>
-                      <span className="font-medium">{kb.name}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={KIND_COLORS[kb.kind] || ''}
-                        variant="secondary"
-                      >
-                        {kb.kind}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <BookOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-medium">{kb.name}</span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {kb.properties?.name || 'General'}
+                      {(kb.knowledge_base_rooms || []).length === 0
+                        ? 'None'
+                        : `${(kb.knowledge_base_rooms || []).length} room${(kb.knowledge_base_rooms || []).length === 1 ? '' : 's'}`}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {getRoomSummary(kb)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {kb.content
-                        ? `${kb.content.length.toLocaleString()} chars`
-                        : '0 chars'}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {kb.updated_at
-                        ? formatDistanceToNow(new Date(kb.updated_at), {
-                            addSuffix: true,
-                          })
-                        : '--'}
+                    <TableCell className="text-muted-foreground text-sm max-w-md truncate">
+                      {getContentPreview(kb.content)}
                     </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={3}
                     className="text-center text-muted-foreground py-12"
                   >
                     {search
