@@ -57,8 +57,8 @@ export function AppSidebar() {
                     href={item.href}
                     className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
                       isActive(item.href)
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        ? "bg-green-50 text-green-700 font-medium dark:bg-green-950/30 dark:text-green-400"
+                        : "text-gray-400 hover:bg-muted hover:text-foreground"
                     }`}
                   >
                     <item.icon className="h-4 w-4" />
