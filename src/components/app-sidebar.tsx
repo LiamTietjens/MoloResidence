@@ -9,17 +9,6 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-} from "@/components/ui/sidebar";
-
 const navGroups = [
   {
     label: "Overview",
@@ -51,33 +40,36 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar collapsible="none" className="border-r w-56">
-      <SidebarHeader className="h-14 flex items-center justify-center border-b">
-        <Link href="/" className="text-base font-semibold tracking-tight">
-          Molo Residence
-        </Link>
-      </SidebarHeader>
-      <SidebarContent className="px-2 pt-2">
+    <aside className="w-[220px] shrink-0 border-r bg-muted/30 flex flex-col">
+      <div className="h-14 flex items-center justify-center border-b font-semibold tracking-tight">
+        Molo Residence
+      </div>
+      <nav className="flex-1 p-3 space-y-6 mt-2">
         {navGroups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-            <SidebarMenu>
+          <div key={group.label}>
+            <p className="px-3 mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              {group.label}
+            </p>
+            <ul className="space-y-0.5">
               {group.items.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    isActive={isActive(item.href)}
-                    tooltip={item.title}
-                    render={<Link href={item.href} />}
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                      isActive(item.href)
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
                   >
-                    <item.icon />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                    <item.icon className="h-4 w-4" />
+                    {item.title}
+                  </Link>
+                </li>
               ))}
-            </SidebarMenu>
-          </SidebarGroup>
+            </ul>
+          </div>
         ))}
-      </SidebarContent>
-    </Sidebar>
+      </nav>
+    </aside>
   );
 }
