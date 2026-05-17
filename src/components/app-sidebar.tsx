@@ -41,8 +41,8 @@ export function AppSidebar() {
 
   return (
     <aside className="w-[220px] shrink-0 border-r bg-muted/30 flex flex-col">
-      <div className="h-14 flex items-center justify-center border-b font-semibold tracking-tight">
-        Molo Residence
+      <div className="flex items-center justify-center border-b py-4 px-6">
+        <img src="/logo.png" alt="Molo Residence" className="h-10 w-auto" />
       </div>
       <nav className="flex-1 p-3 space-y-6 mt-2">
         {navGroups.map((group) => (
@@ -57,8 +57,8 @@ export function AppSidebar() {
                     href={item.href}
                     className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
                       isActive(item.href)
-                        ? "bg-green-50 text-green-700 font-medium dark:bg-green-950/30 dark:text-green-400"
-                        : "text-gray-400 hover:bg-muted hover:text-foreground"
+                        ? "bg-gray-100 text-foreground font-medium dark:bg-gray-800"
+                        : "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-gray-800/50"
                     }`}
                   >
                     <item.icon className="h-4 w-4" />
