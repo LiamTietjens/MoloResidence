@@ -51,15 +51,13 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar collapsible="none" className="border-r">
-      <SidebarHeader className="h-14 flex items-center border-b px-4">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="text-base font-semibold tracking-tight">
-            Molo Residence
-          </span>
+    <Sidebar collapsible="none" className="border-r w-56">
+      <SidebarHeader className="h-14 flex items-center justify-center border-b">
+        <Link href="/" className="text-base font-semibold tracking-tight">
+          Molo Residence
         </Link>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-2 pt-2">
         {navGroups.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>

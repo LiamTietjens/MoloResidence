@@ -5,8 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase-browser';
 import { toast } from 'sonner';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
+import { marked } from 'marked';
+import TurndownService from 'turndown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -66,6 +69,14 @@ interface PropertyRooms {
   rooms: string[];
 }
 
+interface ReassignConfirmation {
+  type: 'single' | 'property';
+  propertyId: string;
+  roomNumber?: string;
+  otherKbName?: string;
+  affectedRooms?: { room: string; kbName: string }[];
+}
+
 function DetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -73,13 +84,8 @@ function DetailContent() {
 
   const [kb, setKb] = useState<KnowledgeBase | null>(null);
   const [name, setName] = useState('');
-  const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-
-  // Markdown editor state
-  const [editorTab, setEditorTab] = useState<'edit' | 'preview'>('edit');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Room assignment state
   const [propertyRooms, setPropertyRooms] = useState<PropertyRooms[]>([]);
@@ -90,9 +96,42 @@ function DetailContent() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  // Debounce timers
+  // Reassignment confirmation state
+  const [reassignConfirm, setReassignConfirm] = useState<ReassignConfirmation | null>(null);
+
+  // Debounce timer for content
   const contentTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const roomTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Turndown service for HTML -> Markdown
+  const turndownService = useRef(new TurndownService({
+    headingStyle: 'atx',
+    bulletListMarker: '-',
+  }));
+
+  // Tiptap editor
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+      }),
+      Placeholder.configure({
+        placeholder: 'Enter the knowledge base content the AI agent will use...',
+      }),
+    ],
+    editorProps: {
+      attributes: {
+        class: 'prose prose-sm dark:prose-invert max-w-none min-h-[400px] w-full p-4 outline-none focus:outline-none',
+      },
+    },
+    onUpdate: ({ editor: ed }) => {
+      if (contentTimerRef.current) clearTimeout(contentTimerRef.current);
+      contentTimerRef.current = setTimeout(() => {
+        const html = ed.getHTML();
+        const markdown = turndownService.current.turndown(html);
+        saveContent(markdown);
+      }, 1000);
+    },
+  });
 
   // Load data
   useEffect(() => {
@@ -110,7 +149,6 @@ function DetailContent() {
           .eq('id', id!)
           .single(),
         supabase.from('properties').select('id, name').order('name'),
-        // Fetch ALL room assignments joined through knowledge_bases to get property_id
         supabase
           .from('knowledge_base_rooms')
           .select('room_number, knowledge_base_id, knowledge_bases(id, name, property_id)')
@@ -125,9 +163,14 @@ function DetailContent() {
 
       setKb(kbData as KnowledgeBase);
       setName(kbData.name);
-      setContent(kbData.content || '');
 
-      // Build all assignments - property_id comes from the joined knowledge_bases
+      // Set editor content from markdown
+      if (editor && kbData.content) {
+        const html = await marked(kbData.content);
+        editor.commands.setContent(html);
+      }
+
+      // Build all assignments
       const assignments: RoomAssignment[] = (allRoomData || []).map((r: Record<string, unknown>) => {
         const kbJoin = r.knowledge_bases as { id: string; name: string; property_id: string } | null;
         return {
@@ -170,7 +213,17 @@ function DetailContent() {
     }
 
     fetchData();
-  }, [id]);
+  }, [id, editor]);
+
+  // Set editor content once editor is ready and we have data
+  useEffect(() => {
+    if (editor && kb?.content && !editor.getText().trim()) {
+      (async () => {
+        const html = await marked(kb.content || '');
+        editor.commands.setContent(html);
+      })();
+    }
+  }, [editor, kb]);
 
   // Auto-save name on blur
   const saveName = useCallback(
@@ -190,7 +243,7 @@ function DetailContent() {
     [id]
   );
 
-  // Debounced content save
+  // Save content (markdown)
   const saveContent = useCallback(
     async (newContent: string) => {
       if (!id) return;
@@ -208,49 +261,6 @@ function DetailContent() {
     [id]
   );
 
-  const handleContentChange = (newContent: string) => {
-    setContent(newContent);
-    if (contentTimerRef.current) clearTimeout(contentTimerRef.current);
-    contentTimerRef.current = setTimeout(() => {
-      saveContent(newContent);
-    }, 1000);
-  };
-
-  // Markdown toolbar actions
-  const insertMarkdown = (prefix: string, suffix: string = '') => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
-    const before = content.substring(0, start);
-    const after = content.substring(end);
-
-    const newContent = before + prefix + selectedText + suffix + after;
-    handleContentChange(newContent);
-
-    // Restore cursor position after state update
-    requestAnimationFrame(() => {
-      textarea.focus();
-      const cursorPos = start + prefix.length + selectedText.length + suffix.length;
-      textarea.setSelectionRange(
-        start + prefix.length,
-        start + prefix.length + selectedText.length
-      );
-    });
-  };
-
-  const toolbarActions = [
-    { icon: Heading1, label: 'Heading 1', action: () => insertMarkdown('# ') },
-    { icon: Heading2, label: 'Heading 2', action: () => insertMarkdown('## ') },
-    { icon: Heading3, label: 'Heading 3', action: () => insertMarkdown('### ') },
-    { icon: Bold, label: 'Bold', action: () => insertMarkdown('**', '**') },
-    { icon: Italic, label: 'Italic', action: () => insertMarkdown('*', '*') },
-    { icon: List, label: 'Bullet List', action: () => insertMarkdown('- ') },
-    { icon: ListOrdered, label: 'Numbered List', action: () => insertMarkdown('1. ') },
-  ];
-
   // Save room assignments
   const saveRoomAssignments = useCallback(
     async (rooms: Set<string>) => {
@@ -263,7 +273,7 @@ function DetailContent() {
         .delete()
         .eq('knowledge_base_id', id);
 
-      // Insert new assignments (only knowledge_base_id and room_number - no property_id column)
+      // Insert new assignments
       const roomRows = [...rooms].map((key) => {
         const [, room_number] = key.split(':');
         return { knowledge_base_id: id, room_number };
@@ -286,45 +296,173 @@ function DetailContent() {
     [id]
   );
 
-  const debouncedSaveRooms = useCallback(
-    (rooms: Set<string>) => {
-      if (roomTimerRef.current) clearTimeout(roomTimerRef.current);
-      roomTimerRef.current = setTimeout(() => {
-        saveRoomAssignments(rooms);
-      }, 600);
+  // Remove room from another KB
+  const removeFromOtherKb = useCallback(
+    async (otherKbId: string, roomNumber: string) => {
+      await supabase
+        .from('knowledge_base_rooms')
+        .delete()
+        .eq('knowledge_base_id', otherKbId)
+        .eq('room_number', roomNumber);
     },
-    [saveRoomAssignments]
+    []
   );
 
-  // Toggle a single room
+  // Toggle a single room (with reassignment check)
   const toggleRoom = (propertyId: string, roomNumber: string) => {
     const key = `${propertyId}:${roomNumber}`;
-    setSelectedRooms((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      debouncedSaveRooms(next);
-      return next;
-    });
+
+    // If already selected, just deselect
+    if (selectedRooms.has(key)) {
+      const next = new Set(selectedRooms);
+      next.delete(key);
+      setSelectedRooms(next);
+      saveRoomAssignments(next);
+      return;
+    }
+
+    // Check if assigned to another KB
+    const otherAssignment = allAssignments.find(
+      (a) =>
+        a.property_id === propertyId &&
+        a.room_number === roomNumber &&
+        a.knowledge_base_id !== id
+    );
+
+    if (otherAssignment) {
+      setReassignConfirm({
+        type: 'single',
+        propertyId,
+        roomNumber,
+        otherKbName: otherAssignment.kb_name,
+      });
+    } else {
+      const next = new Set(selectedRooms);
+      next.add(key);
+      setSelectedRooms(next);
+      saveRoomAssignments(next);
+    }
   };
 
-  // Toggle all rooms for a property
-  const toggleProperty = (propertyId: string, rooms: string[]) => {
-    setSelectedRooms((prev) => {
-      const next = new Set(prev);
-      const allSelected = rooms.every((r) => next.has(`${propertyId}:${r}`));
+  // Confirm single room reassignment
+  const confirmSingleReassign = async () => {
+    if (!reassignConfirm || reassignConfirm.type !== 'single') return;
 
-      if (allSelected) {
-        rooms.forEach((r) => next.delete(`${propertyId}:${r}`));
-      } else {
-        rooms.forEach((r) => next.add(`${propertyId}:${r}`));
+    const { propertyId, roomNumber } = reassignConfirm;
+    const key = `${propertyId}:${roomNumber!}`;
+
+    // Remove from other KB
+    const otherAssignment = allAssignments.find(
+      (a) =>
+        a.property_id === propertyId &&
+        a.room_number === roomNumber &&
+        a.knowledge_base_id !== id
+    );
+    if (otherAssignment) {
+      await removeFromOtherKb(otherAssignment.knowledge_base_id, roomNumber!);
+      // Update local state
+      setAllAssignments((prev) =>
+        prev.filter(
+          (a) =>
+            !(a.knowledge_base_id === otherAssignment.knowledge_base_id &&
+              a.room_number === roomNumber)
+        )
+      );
+    }
+
+    const next = new Set(selectedRooms);
+    next.add(key);
+    setSelectedRooms(next);
+    saveRoomAssignments(next);
+    setReassignConfirm(null);
+  };
+
+  // Toggle all rooms for a property (with reassignment check)
+  const toggleProperty = (propertyId: string, rooms: string[]) => {
+    const allSelected = rooms.every((r) => selectedRooms.has(`${propertyId}:${r}`));
+
+    if (allSelected) {
+      // Deselect all
+      const next = new Set(selectedRooms);
+      rooms.forEach((r) => next.delete(`${propertyId}:${r}`));
+      setSelectedRooms(next);
+      saveRoomAssignments(next);
+      return;
+    }
+
+    // Check which rooms are assigned to other KBs
+    const affectedRooms: { room: string; kbName: string; kbId: string }[] = [];
+    for (const room of rooms) {
+      if (selectedRooms.has(`${propertyId}:${room}`)) continue; // already ours
+      const otherAssignment = allAssignments.find(
+        (a) =>
+          a.property_id === propertyId &&
+          a.room_number === room &&
+          a.knowledge_base_id !== id
+      );
+      if (otherAssignment) {
+        affectedRooms.push({
+          room,
+          kbName: otherAssignment.kb_name,
+          kbId: otherAssignment.knowledge_base_id,
+        });
       }
-      debouncedSaveRooms(next);
-      return next;
-    });
+    }
+
+    if (affectedRooms.length > 0) {
+      setReassignConfirm({
+        type: 'property',
+        propertyId,
+        affectedRooms: affectedRooms.map((a) => ({ room: a.room, kbName: a.kbName })),
+      });
+    } else {
+      const next = new Set(selectedRooms);
+      rooms.forEach((r) => next.add(`${propertyId}:${r}`));
+      setSelectedRooms(next);
+      saveRoomAssignments(next);
+    }
+  };
+
+  // Confirm property-level reassignment
+  const confirmPropertyReassign = async () => {
+    if (!reassignConfirm || reassignConfirm.type !== 'property') return;
+
+    const { propertyId, affectedRooms } = reassignConfirm;
+
+    // Find the corresponding property's rooms
+    const propRoom = propertyRooms.find((pr) => pr.property.id === propertyId);
+    if (!propRoom) return;
+
+    // Remove affected rooms from their other KBs
+    for (const affected of affectedRooms || []) {
+      const otherAssignment = allAssignments.find(
+        (a) =>
+          a.property_id === propertyId &&
+          a.room_number === affected.room &&
+          a.knowledge_base_id !== id
+      );
+      if (otherAssignment) {
+        await removeFromOtherKb(otherAssignment.knowledge_base_id, affected.room);
+      }
+    }
+
+    // Update local assignments state
+    const affectedRoomNumbers = new Set((affectedRooms || []).map((a) => a.room));
+    setAllAssignments((prev) =>
+      prev.filter(
+        (a) =>
+          !(a.property_id === propertyId &&
+            affectedRoomNumbers.has(a.room_number) &&
+            a.knowledge_base_id !== id)
+      )
+    );
+
+    // Select all rooms for this property
+    const next = new Set(selectedRooms);
+    propRoom.rooms.forEach((r) => next.add(`${propertyId}:${r}`));
+    setSelectedRooms(next);
+    saveRoomAssignments(next);
+    setReassignConfirm(null);
   };
 
   // Get property checkbox state
@@ -397,7 +535,7 @@ function DetailContent() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-8">
+      <div className="w-full space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -425,79 +563,18 @@ function DetailContent() {
           />
         </div>
 
-        {/* Markdown Editor */}
+        {/* WYSIWYG Editor */}
         <div className="space-y-2">
           <Label>Content</Label>
           <div className="rounded-lg border overflow-hidden">
             {/* Toolbar */}
-            <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1.5">
-              {toolbarActions.map((item) => (
-                <Tooltip key={item.label}>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        onClick={item.action}
-                        className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                      />
-                    }
-                  >
-                    <item.icon className="h-4 w-4" />
-                  </TooltipTrigger>
-                  <TooltipContent>{item.label}</TooltipContent>
-                </Tooltip>
-              ))}
+            {editor && <EditorToolbar editor={editor} />}
 
-              {/* Tab switcher */}
-              <div className="ml-auto flex items-center rounded-md bg-muted p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setEditorTab('edit')}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    editorTab === 'edit'
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditorTab('preview')}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    editorTab === 'preview'
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Preview
-                </button>
-              </div>
-            </div>
-
-            {/* Editor / Preview area */}
-            {editorTab === 'edit' ? (
-              <textarea
-                ref={textareaRef}
-                value={content}
-                onChange={(e) => handleContentChange(e.target.value)}
-                placeholder="Enter the knowledge base content the AI agent will use..."
-                className="w-full min-h-[400px] p-4 font-mono text-sm leading-relaxed bg-background resize-y outline-none"
-              />
-            ) : (
-              <div className="min-h-[400px] p-4 prose prose-sm dark:prose-invert max-w-none overflow-auto">
-                {content ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {content}
-                  </ReactMarkdown>
-                ) : (
-                  <p className="text-muted-foreground italic">No content yet.</p>
-                )}
-              </div>
-            )}
+            {/* Editor area */}
+            <EditorContent editor={editor} className="w-full" />
           </div>
           <p className="text-xs text-muted-foreground">
-            {content.length.toLocaleString()} characters &middot; Auto-saves as you type
+            Auto-saves as you type
           </p>
         </div>
 
@@ -608,8 +685,140 @@ function DetailContent() {
             </DialogContent>
           </Dialog>
         </div>
+
+        {/* Reassignment confirmation dialog */}
+        <Dialog
+          open={reassignConfirm !== null}
+          onOpenChange={(open) => {
+            if (!open) setReassignConfirm(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reassign Room{reassignConfirm?.type === 'property' ? 's' : ''}</DialogTitle>
+              <DialogDescription>
+                {reassignConfirm?.type === 'single' && (
+                  <>
+                    Room {reassignConfirm.roomNumber} is currently assigned to &quot;{reassignConfirm.otherKbName}&quot;.
+                    Reassign to this knowledge base?
+                  </>
+                )}
+                {reassignConfirm?.type === 'property' && (
+                  <>
+                    Some rooms are assigned to other knowledge bases. Reassign all rooms to this knowledge base?
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            {reassignConfirm?.type === 'property' && reassignConfirm.affectedRooms && (
+              <div className="max-h-40 overflow-y-auto rounded-md border p-3 space-y-1.5">
+                {reassignConfirm.affectedRooms.map((ar) => (
+                  <div key={ar.room} className="flex items-center justify-between text-sm">
+                    <span className="font-medium">Room {ar.room}</span>
+                    <span className="text-muted-foreground text-xs">currently in &quot;{ar.kbName}&quot;</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setReassignConfirm(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (reassignConfirm?.type === 'single') {
+                    confirmSingleReassign();
+                  } else {
+                    confirmPropertyReassign();
+                  }
+                }}
+              >
+                Reassign
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
+  );
+}
+
+// Editor toolbar component
+function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  if (!editor) return null;
+
+  const toolbarItems = [
+    {
+      icon: Heading1,
+      label: 'Heading 1',
+      action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+      isActive: editor.isActive('heading', { level: 1 }),
+    },
+    {
+      icon: Heading2,
+      label: 'Heading 2',
+      action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+      isActive: editor.isActive('heading', { level: 2 }),
+    },
+    {
+      icon: Heading3,
+      label: 'Heading 3',
+      action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+      isActive: editor.isActive('heading', { level: 3 }),
+    },
+    {
+      icon: Bold,
+      label: 'Bold',
+      action: () => editor.chain().focus().toggleBold().run(),
+      isActive: editor.isActive('bold'),
+    },
+    {
+      icon: Italic,
+      label: 'Italic',
+      action: () => editor.chain().focus().toggleItalic().run(),
+      isActive: editor.isActive('italic'),
+    },
+    {
+      icon: List,
+      label: 'Bullet List',
+      action: () => editor.chain().focus().toggleBulletList().run(),
+      isActive: editor.isActive('bulletList'),
+    },
+    {
+      icon: ListOrdered,
+      label: 'Ordered List',
+      action: () => editor.chain().focus().toggleOrderedList().run(),
+      isActive: editor.isActive('orderedList'),
+    },
+  ];
+
+  return (
+    <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1.5">
+      {toolbarItems.map((item) => (
+        <Tooltip key={item.label}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={item.action}
+                className={`
+                  inline-flex items-center justify-center h-7 w-7 rounded-md transition-colors
+                  ${item.isActive
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }
+                `}
+              />
+            }
+          >
+            <item.icon className="h-4 w-4" />
+          </TooltipTrigger>
+          <TooltipContent>{item.label}</TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
   );
 }
 
@@ -682,7 +891,7 @@ function RoomBadge({
           {badge}
         </TooltipTrigger>
         <TooltipContent>
-          Already assigned to: {otherKbName}
+          Assigned to: {otherKbName}
         </TooltipContent>
       </Tooltip>
     );
