@@ -42,7 +42,7 @@ export function AppSidebar() {
   return (
     <aside className="w-[220px] shrink-0 border-r bg-muted/30 flex flex-col">
       <div className="flex items-center justify-center border-b py-4 px-6">
-        <img src="/logo.png" alt="Molo Residence" className="h-10 w-auto" />
+        <img src="/logo.png" alt="Molo Residence" className="h-[60px] w-auto" />
       </div>
       <nav className="flex-1 p-3 space-y-6 mt-2">
         {navGroups.map((group) => (
