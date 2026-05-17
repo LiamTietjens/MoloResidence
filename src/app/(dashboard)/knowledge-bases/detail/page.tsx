@@ -5,10 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase-browser';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -27,7 +28,20 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/components/ui/tooltip';
-import { ArrowLeft, Trash2Icon, Check, Loader2, Minus } from 'lucide-react';
+import {
+  ArrowLeft,
+  Trash2Icon,
+  Check,
+  Loader2,
+  Minus,
+  Bold,
+  Italic,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+} from 'lucide-react';
 
 interface Property {
   id: string;
@@ -47,7 +61,6 @@ interface KnowledgeBase {
   content: string | null;
 }
 
-// Rooms per property - we'll collect all known rooms from knowledge_base_rooms
 interface PropertyRooms {
   property: Property;
   rooms: string[];
@@ -64,9 +77,13 @@ function DetailContent() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
+  // Markdown editor state
+  const [editorTab, setEditorTab] = useState<'edit' | 'preview'>('edit');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   // Room assignment state
   const [propertyRooms, setPropertyRooms] = useState<PropertyRooms[]>([]);
-  const [selectedRooms, setSelectedRooms] = useState<Set<string>>(new Set()); // "propertyId:roomNumber"
+  const [selectedRooms, setSelectedRooms] = useState<Set<string>>(new Set());
   const [allAssignments, setAllAssignments] = useState<RoomAssignment[]>([]);
 
   // Save state
@@ -93,10 +110,10 @@ function DetailContent() {
           .eq('id', id!)
           .single(),
         supabase.from('properties').select('id, name').order('name'),
-        // Fetch ALL room assignments across all KBs with KB names
+        // Fetch ALL room assignments joined through knowledge_bases to get property_id
         supabase
           .from('knowledge_base_rooms')
-          .select('room_number, property_id, knowledge_base_id, knowledge_bases(name)')
+          .select('room_number, knowledge_base_id, knowledge_bases(id, name, property_id)')
           .order('room_number'),
       ]);
 
@@ -110,18 +127,22 @@ function DetailContent() {
       setName(kbData.name);
       setContent(kbData.content || '');
 
-      // Build all assignments with KB names
-      const assignments: RoomAssignment[] = (allRoomData || []).map((r: Record<string, unknown>) => ({
-        room_number: r.room_number as string,
-        property_id: r.property_id as string,
-        knowledge_base_id: r.knowledge_base_id as string,
-        kb_name: (r.knowledge_bases as { name: string } | null)?.name || 'Unknown',
-      }));
+      // Build all assignments - property_id comes from the joined knowledge_bases
+      const assignments: RoomAssignment[] = (allRoomData || []).map((r: Record<string, unknown>) => {
+        const kbJoin = r.knowledge_bases as { id: string; name: string; property_id: string } | null;
+        return {
+          room_number: r.room_number as string,
+          property_id: kbJoin?.property_id || '',
+          knowledge_base_id: r.knowledge_base_id as string,
+          kb_name: kbJoin?.name || 'Unknown',
+        };
+      });
       setAllAssignments(assignments);
 
       // Group rooms by property
       const roomsByProperty = new Map<string, Set<string>>();
       for (const assignment of assignments) {
+        if (!assignment.property_id) continue;
         if (!roomsByProperty.has(assignment.property_id)) {
           roomsByProperty.set(assignment.property_id, new Set());
         }
@@ -195,6 +216,41 @@ function DetailContent() {
     }, 1000);
   };
 
+  // Markdown toolbar actions
+  const insertMarkdown = (prefix: string, suffix: string = '') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = content.substring(start, end);
+    const before = content.substring(0, start);
+    const after = content.substring(end);
+
+    const newContent = before + prefix + selectedText + suffix + after;
+    handleContentChange(newContent);
+
+    // Restore cursor position after state update
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const cursorPos = start + prefix.length + selectedText.length + suffix.length;
+      textarea.setSelectionRange(
+        start + prefix.length,
+        start + prefix.length + selectedText.length
+      );
+    });
+  };
+
+  const toolbarActions = [
+    { icon: Heading1, label: 'Heading 1', action: () => insertMarkdown('# ') },
+    { icon: Heading2, label: 'Heading 2', action: () => insertMarkdown('## ') },
+    { icon: Heading3, label: 'Heading 3', action: () => insertMarkdown('### ') },
+    { icon: Bold, label: 'Bold', action: () => insertMarkdown('**', '**') },
+    { icon: Italic, label: 'Italic', action: () => insertMarkdown('*', '*') },
+    { icon: List, label: 'Bullet List', action: () => insertMarkdown('- ') },
+    { icon: ListOrdered, label: 'Numbered List', action: () => insertMarkdown('1. ') },
+  ];
+
   // Save room assignments
   const saveRoomAssignments = useCallback(
     async (rooms: Set<string>) => {
@@ -207,10 +263,10 @@ function DetailContent() {
         .delete()
         .eq('knowledge_base_id', id);
 
-      // Insert new assignments
+      // Insert new assignments (only knowledge_base_id and room_number - no property_id column)
       const roomRows = [...rooms].map((key) => {
-        const [property_id, room_number] = key.split(':');
-        return { knowledge_base_id: id, property_id, room_number };
+        const [, room_number] = key.split(':');
+        return { knowledge_base_id: id, room_number };
       });
 
       if (roomRows.length > 0) {
@@ -262,10 +318,8 @@ function DetailContent() {
       const allSelected = rooms.every((r) => next.has(`${propertyId}:${r}`));
 
       if (allSelected) {
-        // Deselect all
         rooms.forEach((r) => next.delete(`${propertyId}:${r}`));
       } else {
-        // Select all
         rooms.forEach((r) => next.add(`${propertyId}:${r}`));
       }
       debouncedSaveRooms(next);
@@ -319,10 +373,10 @@ function DetailContent() {
 
   if (loading) {
     return (
-      <div className="space-y-6 max-w-3xl">
+      <div className="space-y-6">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-[300px] w-full" />
+        <Skeleton className="h-[400px] w-full" />
         <Skeleton className="h-[200px] w-full" />
       </div>
     );
@@ -343,7 +397,7 @@ function DetailContent() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-8 max-w-3xl">
+      <div className="space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -371,16 +425,77 @@ function DetailContent() {
           />
         </div>
 
-        {/* Content textarea */}
+        {/* Markdown Editor */}
         <div className="space-y-2">
-          <Label htmlFor="kb-content">Content</Label>
-          <Textarea
-            id="kb-content"
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            placeholder="Enter the knowledge base content the AI agent will use..."
-            className="font-mono min-h-[350px] text-sm leading-relaxed"
-          />
+          <Label>Content</Label>
+          <div className="rounded-lg border overflow-hidden">
+            {/* Toolbar */}
+            <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1.5">
+              {toolbarActions.map((item) => (
+                <Tooltip key={item.label}>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        onClick={item.action}
+                        className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      />
+                    }
+                  >
+                    <item.icon className="h-4 w-4" />
+                  </TooltipTrigger>
+                  <TooltipContent>{item.label}</TooltipContent>
+                </Tooltip>
+              ))}
+
+              {/* Tab switcher */}
+              <div className="ml-auto flex items-center rounded-md bg-muted p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setEditorTab('edit')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    editorTab === 'edit'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditorTab('preview')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    editorTab === 'preview'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Preview
+                </button>
+              </div>
+            </div>
+
+            {/* Editor / Preview area */}
+            {editorTab === 'edit' ? (
+              <textarea
+                ref={textareaRef}
+                value={content}
+                onChange={(e) => handleContentChange(e.target.value)}
+                placeholder="Enter the knowledge base content the AI agent will use..."
+                className="w-full min-h-[400px] p-4 font-mono text-sm leading-relaxed bg-background resize-y outline-none"
+              />
+            ) : (
+              <div className="min-h-[400px] p-4 prose prose-sm dark:prose-invert max-w-none overflow-auto">
+                {content ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {content}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-muted-foreground italic">No content yet.</p>
+                )}
+              </div>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">
             {content.length.toLocaleString()} characters &middot; Auto-saves as you type
           </p>
@@ -602,10 +717,10 @@ export default function KnowledgeBaseDetailPage() {
   return (
     <Suspense
       fallback={
-        <div className="space-y-6 max-w-3xl">
+        <div className="space-y-6">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-[300px] w-full" />
+          <Skeleton className="h-[400px] w-full" />
           <Skeleton className="h-[200px] w-full" />
         </div>
       }
