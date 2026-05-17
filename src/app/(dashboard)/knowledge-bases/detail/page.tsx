@@ -29,6 +29,7 @@ function DetailContent() {
 
   const [kb, setKb] = useState<KnowledgeBase | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [totalPropertyRooms, setTotalPropertyRooms] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -55,8 +56,19 @@ function DetailContent() {
         return;
       }
 
-      setKb(kbData as KnowledgeBase);
+      const typedKb = kbData as KnowledgeBase;
+      setKb(typedKb);
       setProperties(props || []);
+
+      // Check total rooms for the property to determine assignment type
+      if (typedKb.property_id) {
+        const { count } = await supabase
+          .from('knowledge_base_rooms')
+          .select('room_number', { count: 'exact', head: true })
+          .eq('property_id', typedKb.property_id);
+        setTotalPropertyRooms(count ?? 0);
+      }
+
       setLoading(false);
     }
 
@@ -81,24 +93,43 @@ function DetailContent() {
       return { error: error.message };
     }
 
-    // Re-sync room assignments: delete all then re-insert
+    // Re-sync room assignments: delete existing then re-insert
     await supabase
       .from('knowledge_base_rooms')
       .delete()
       .eq('knowledge_base_id', id);
 
-    if (data.kind !== 'general' && data.room_numbers.length > 0) {
-      const roomRows = data.room_numbers.map((room_number) => ({
-        knowledge_base_id: id,
-        room_number: room_number.trim(),
-      }));
+    if (data.kind !== 'general' && data.property_id) {
+      let roomsToAssign: string[] = [];
 
-      const { error: roomError } = await supabase
-        .from('knowledge_base_rooms')
-        .insert(roomRows);
+      if (data.assignment === 'entire_property') {
+        // Fetch all known rooms for this property
+        const { data: existingRooms } = await supabase
+          .from('knowledge_base_rooms')
+          .select('room_number')
+          .eq('property_id', data.property_id);
 
-      if (roomError) {
-        return { error: roomError.message };
+        if (existingRooms && existingRooms.length > 0) {
+          roomsToAssign = [...new Set(existingRooms.map((r: { room_number: string }) => r.room_number))];
+        }
+      } else {
+        roomsToAssign = data.room_numbers;
+      }
+
+      if (roomsToAssign.length > 0) {
+        const roomRows = roomsToAssign.map((room_number) => ({
+          knowledge_base_id: id,
+          property_id: data.property_id,
+          room_number: room_number.trim(),
+        }));
+
+        const { error: roomError } = await supabase
+          .from('knowledge_base_rooms')
+          .insert(roomRows);
+
+        if (roomError) {
+          return { error: roomError.message };
+        }
       }
     }
 
@@ -109,14 +140,13 @@ function DetailContent() {
   async function handleDuplicate() {
     if (!id || !kb) return { error: 'No knowledge base loaded' };
 
-    // Create duplicate
     const { data: duplicate, error: insertError } = await supabase
       .from('knowledge_bases')
       .insert({
         name: `${kb.name} (copy)`,
         kind: kb.kind,
         property_id: kb.property_id,
-        is_default_general: false, // Never duplicate the default flag
+        is_default_general: false,
         content: kb.content,
       })
       .select('id')
@@ -143,7 +173,6 @@ function DetailContent() {
   async function handleDelete() {
     if (!id) return { error: 'No ID provided' };
 
-    // Delete room assignments first (cascade may not be set up)
     await supabase
       .from('knowledge_base_rooms')
       .delete()
@@ -166,13 +195,13 @@ function DetailContent() {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-4">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-[500px] w-full" />
+            <Skeleton className="h-[400px] w-full" />
           </div>
-          <Skeleton className="h-[400px] w-full" />
+          <Skeleton className="h-[300px] w-full" />
         </div>
       </div>
     );
@@ -180,7 +209,7 @@ function DetailContent() {
 
   if (notFound || !kb) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <h1 className="text-2xl font-semibold tracking-tight">Not Found</h1>
         <p className="text-muted-foreground">
           The knowledge base you are looking for does not exist or the ID is missing.
@@ -189,7 +218,12 @@ function DetailContent() {
     );
   }
 
-  const roomNumbers = (kb.knowledge_base_rooms || []).map((r: { room_number: string }) => r.room_number);
+  // Determine assignment type: if room count matches total property rooms, it's "entire property"
+  const kbRoomCount = (kb.knowledge_base_rooms || []).length;
+  const isEntireProperty =
+    kb.kind === 'general' ||
+    kbRoomCount === 0 ||
+    (totalPropertyRooms > 0 && kbRoomCount >= totalPropertyRooms);
 
   const initialData = {
     id: kb.id,
@@ -198,8 +232,10 @@ function DetailContent() {
     property_id: kb.property_id,
     is_default_general: kb.is_default_general || false,
     content: kb.content || '',
-    room_numbers: roomNumbers,
-    assignment: roomNumbers.length > 0 ? 'specific_rooms' as const : 'entire_property' as const,
+    room_numbers: (kb.knowledge_base_rooms || []).map((r) => r.room_number),
+    assignment: (isEntireProperty ? 'entire_property' : 'specific_rooms') as
+      | 'entire_property'
+      | 'specific_rooms',
   };
 
   return (
@@ -224,13 +260,13 @@ export default function KnowledgeBaseDetailPage() {
       fallback={
         <div className="space-y-6">
           <Skeleton className="h-8 w-64" />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="space-y-4">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-[500px] w-full" />
+              <Skeleton className="h-[400px] w-full" />
             </div>
-            <Skeleton className="h-[400px] w-full" />
+            <Skeleton className="h-[300px] w-full" />
           </div>
         </div>
       }
