@@ -43,22 +43,17 @@ export default function PropertiesPage() {
       return;
     }
 
-    // Fetch all rooms linked through knowledge_bases
+    // Fetch rooms from property_rooms (independent of KB assignments)
     const { data: roomData } = await supabase
-      .from('knowledge_base_rooms')
-      .select('room_number, knowledge_bases!inner(property_id)')
-      .not('knowledge_bases.property_id', 'is', null);
+      .from('property_rooms')
+      .select('property_id, room_number')
+      .order('room_number');
 
     // Build room map per property
     const roomMap: Record<string, string[]> = {};
     for (const row of roomData ?? []) {
-      const kb = row.knowledge_bases as unknown as { property_id: string };
-      if (kb?.property_id) {
-        if (!roomMap[kb.property_id]) roomMap[kb.property_id] = [];
-        if (!roomMap[kb.property_id].includes(row.room_number)) {
-          roomMap[kb.property_id].push(row.room_number);
-        }
-      }
+      if (!roomMap[row.property_id]) roomMap[row.property_id] = [];
+      roomMap[row.property_id].push(row.room_number);
     }
 
     setProperties(
@@ -200,47 +195,16 @@ function PropertyAccordionItem({
 
     setAddingRoom(true);
 
-    // Find or create a property-kind KB for this property
-    let kbId: string | null = null;
-
-    const { data: existingKb } = await supabase
-      .from('knowledge_bases')
-      .select('id')
-      .eq('property_id', property.id)
-      .eq('kind', 'property')
-      .limit(1)
-      .single();
-
-    if (existingKb) {
-      kbId = existingKb.id;
-    } else {
-      const { data: newKb, error: kbError } = await supabase
-        .from('knowledge_bases')
-        .insert({
-          name: `${name} — main KB`,
-          kind: 'property',
-          property_id: property.id,
-        })
-        .select('id')
-        .single();
-
-      if (kbError || !newKb) {
-        toast.error(`Failed to create KB: ${kbError?.message}`);
-        setAddingRoom(false);
-        return;
-      }
-
-      kbId = newKb.id;
-    }
-
     const { error: roomError } = await supabase
-      .from('knowledge_base_rooms')
-      .insert({ knowledge_base_id: kbId, room_number: roomNumber });
+      .from('property_rooms')
+      .insert({ property_id: property.id, room_number: roomNumber });
 
     if (roomError) {
       toast.error(`Failed to add room: ${roomError.message}`);
     } else {
-      setRooms((prev) => [...prev, roomNumber].sort());
+      setRooms((prev) => [...prev, roomNumber].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      ));
       setNewRoom('');
     }
 
@@ -248,19 +212,10 @@ function PropertyAccordionItem({
   }
 
   async function handleRemoveRoom(roomNumber: string) {
-    const { data: kbs } = await supabase
-      .from('knowledge_bases')
-      .select('id')
-      .eq('property_id', property.id);
-
-    if (!kbs || kbs.length === 0) return;
-
-    const kbIds = kbs.map((kb) => kb.id);
-
     const { error } = await supabase
-      .from('knowledge_base_rooms')
+      .from('property_rooms')
       .delete()
-      .in('knowledge_base_id', kbIds)
+      .eq('property_id', property.id)
       .eq('room_number', roomNumber);
 
     if (error) {

@@ -112,12 +112,13 @@ function DetailContent() {
 
   // Tiptap editor
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
       }),
       Placeholder.configure({
-        placeholder: 'Start writing your knowledge base content here...',
+        placeholder: 'Start writing your knowledge base content here...\n\nMarkdown shortcuts:\n  # Heading 1    ## Heading 2    ### Heading 3\n  - Bullet list    1. Numbered list\n  > Blockquote    --- Divider',
       }),
     ],
     editorProps: {
@@ -144,13 +145,19 @@ function DetailContent() {
     }
 
     async function fetchData() {
-      const [{ data: kbData }, { data: properties }, { data: allRoomData }] = await Promise.all([
+      const [{ data: kbData }, { data: properties }, { data: propRoomData }, { data: allKbRoomData }] = await Promise.all([
         supabase
           .from('knowledge_bases')
           .select('id, name, content')
           .eq('id', id!)
           .single(),
         supabase.from('properties').select('id, name').order('name'),
+        // Room list comes from property_rooms (stable, not affected by KB unassignment)
+        supabase
+          .from('property_rooms')
+          .select('property_id, room_number')
+          .order('room_number'),
+        // KB assignments still come from knowledge_base_rooms
         supabase
           .from('knowledge_base_rooms')
           .select('room_number, knowledge_base_id, knowledge_bases(id, name, property_id)')
@@ -172,8 +179,8 @@ function DetailContent() {
         editor.commands.setContent(html);
       }
 
-      // Build all assignments
-      const assignments: RoomAssignment[] = (allRoomData || []).map((r: Record<string, unknown>) => {
+      // Build all KB assignments (for showing which rooms are assigned to which KBs)
+      const assignments: RoomAssignment[] = (allKbRoomData || []).map((r: Record<string, unknown>) => {
         const kbJoin = r.knowledge_bases as { id: string; name: string; property_id: string } | null;
         return {
           room_number: r.room_number as string,
@@ -184,14 +191,13 @@ function DetailContent() {
       });
       setAllAssignments(assignments);
 
-      // Group rooms by property
+      // Group rooms by property from property_rooms (stable source)
       const roomsByProperty = new Map<string, Set<string>>();
-      for (const assignment of assignments) {
-        if (!assignment.property_id) continue;
-        if (!roomsByProperty.has(assignment.property_id)) {
-          roomsByProperty.set(assignment.property_id, new Set());
+      for (const row of propRoomData || []) {
+        if (!roomsByProperty.has(row.property_id)) {
+          roomsByProperty.set(row.property_id, new Set());
         }
-        roomsByProperty.get(assignment.property_id)!.add(assignment.room_number);
+        roomsByProperty.get(row.property_id)!.add(row.room_number);
       }
 
       // Build property rooms list
