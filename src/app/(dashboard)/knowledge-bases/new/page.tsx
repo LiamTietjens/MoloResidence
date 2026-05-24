@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase-browser';
 import { toast } from 'sonner';
@@ -10,32 +10,14 @@ import { Label } from '@/components/ui/label';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
-type Property = { id: string; name: string };
-
 export default function NewKnowledgeBasePage() {
   const router = useRouter();
   const [name, setName] = useState('');
-  const [propertyId, setPropertyId] = useState('');
-  const [properties, setProperties] = useState<Property[]>([]);
   const [creating, setCreating] = useState(false);
-
-  useEffect(() => {
-    supabase
-      .from('properties')
-      .select('id, name')
-      .order('name')
-      .then(({ data }) => {
-        if (data) setProperties(data);
-      });
-  }, []);
 
   async function handleCreate() {
     if (!name.trim()) {
       toast.error('Name is required');
-      return;
-    }
-    if (!propertyId) {
-      toast.error('Please select a property');
       return;
     }
 
@@ -45,8 +27,8 @@ export default function NewKnowledgeBasePage() {
       .from('knowledge_bases')
       .insert({
         name: name.trim(),
-        kind: 'property',
-        property_id: propertyId,
+        kind: 'general',
+        property_id: null,
         content: '',
       })
       .select('id')
@@ -79,29 +61,17 @@ export default function NewKnowledgeBasePage() {
             placeholder="e.g. Check-in Instructions, Pool Rules..."
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreate();
+            }}
             autoFocus
           />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="property">Property</Label>
-          <select
-            id="property"
-            value={propertyId}
-            onChange={(e) => setPropertyId(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <option value="">Select a property...</option>
-            {properties.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
           <p className="text-xs text-muted-foreground">
-            You can assign specific rooms after creation.
+            You can assign properties and rooms in the editor.
           </p>
         </div>
 
-        <Button onClick={handleCreate} disabled={creating || !name.trim() || !propertyId}>
+        <Button onClick={handleCreate} disabled={creating || !name.trim()}>
           {creating ? 'Creating...' : 'Create Knowledge Base'}
         </Button>
       </div>
