@@ -13,7 +13,6 @@ import TurndownService from 'turndown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
@@ -44,6 +43,8 @@ import {
   Heading3,
   List,
   ListOrdered,
+  ChevronRight,
+  Building2,
 } from 'lucide-react';
 
 interface Property {
@@ -91,6 +92,7 @@ function DetailContent() {
   const [propertyRooms, setPropertyRooms] = useState<PropertyRooms[]>([]);
   const [selectedRooms, setSelectedRooms] = useState<Set<string>>(new Set());
   const [allAssignments, setAllAssignments] = useState<RoomAssignment[]>([]);
+  const [expandedProperties, setExpandedProperties] = useState<Set<string>>(new Set());
 
   // Save state
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -115,12 +117,12 @@ function DetailContent() {
         heading: { levels: [1, 2, 3] },
       }),
       Placeholder.configure({
-        placeholder: 'Enter the knowledge base content the AI agent will use...',
+        placeholder: 'Start writing your knowledge base content here...',
       }),
     ],
     editorProps: {
       attributes: {
-        class: 'prose prose-sm dark:prose-invert max-w-none min-h-[400px] w-full p-4 outline-none focus:outline-none',
+        class: 'prose prose-sm dark:prose-invert max-w-none min-h-[500px] w-full p-4 outline-none focus:outline-none',
       },
     },
     onUpdate: ({ editor: ed }) => {
@@ -209,6 +211,13 @@ function DetailContent() {
       );
       setSelectedRooms(selected);
 
+      // Auto-expand properties that have selected rooms
+      const propsWithSelection = new Set<string>();
+      for (const key of selected) {
+        propsWithSelection.add(key.split(':')[0]);
+      }
+      setExpandedProperties(propsWithSelection);
+
       setLoading(false);
     }
 
@@ -267,13 +276,11 @@ function DetailContent() {
       if (!id) return;
       setSaveStatus('saving');
 
-      // Delete existing assignments for this KB
       await supabase
         .from('knowledge_base_rooms')
         .delete()
         .eq('knowledge_base_id', id);
 
-      // Insert new assignments
       const roomRows = [...rooms].map((key) => {
         const [, room_number] = key.split(':');
         return { knowledge_base_id: id, room_number };
@@ -308,11 +315,23 @@ function DetailContent() {
     []
   );
 
+  // Toggle property expansion
+  const togglePropertyExpand = (propertyId: string) => {
+    setExpandedProperties((prev) => {
+      const next = new Set(prev);
+      if (next.has(propertyId)) {
+        next.delete(propertyId);
+      } else {
+        next.add(propertyId);
+      }
+      return next;
+    });
+  };
+
   // Toggle a single room (with reassignment check)
   const toggleRoom = (propertyId: string, roomNumber: string) => {
     const key = `${propertyId}:${roomNumber}`;
 
-    // If already selected, just deselect
     if (selectedRooms.has(key)) {
       const next = new Set(selectedRooms);
       next.delete(key);
@@ -321,7 +340,6 @@ function DetailContent() {
       return;
     }
 
-    // Check if assigned to another KB
     const otherAssignment = allAssignments.find(
       (a) =>
         a.property_id === propertyId &&
@@ -351,7 +369,6 @@ function DetailContent() {
     const { propertyId, roomNumber } = reassignConfirm;
     const key = `${propertyId}:${roomNumber!}`;
 
-    // Remove from other KB
     const otherAssignment = allAssignments.find(
       (a) =>
         a.property_id === propertyId &&
@@ -360,7 +377,6 @@ function DetailContent() {
     );
     if (otherAssignment) {
       await removeFromOtherKb(otherAssignment.knowledge_base_id, roomNumber!);
-      // Update local state
       setAllAssignments((prev) =>
         prev.filter(
           (a) =>
@@ -382,7 +398,6 @@ function DetailContent() {
     const allSelected = rooms.every((r) => selectedRooms.has(`${propertyId}:${r}`));
 
     if (allSelected) {
-      // Deselect all
       const next = new Set(selectedRooms);
       rooms.forEach((r) => next.delete(`${propertyId}:${r}`));
       setSelectedRooms(next);
@@ -390,10 +405,9 @@ function DetailContent() {
       return;
     }
 
-    // Check which rooms are assigned to other KBs
     const affectedRooms: { room: string; kbName: string; kbId: string }[] = [];
     for (const room of rooms) {
-      if (selectedRooms.has(`${propertyId}:${room}`)) continue; // already ours
+      if (selectedRooms.has(`${propertyId}:${room}`)) continue;
       const otherAssignment = allAssignments.find(
         (a) =>
           a.property_id === propertyId &&
@@ -428,12 +442,9 @@ function DetailContent() {
     if (!reassignConfirm || reassignConfirm.type !== 'property') return;
 
     const { propertyId, affectedRooms } = reassignConfirm;
-
-    // Find the corresponding property's rooms
     const propRoom = propertyRooms.find((pr) => pr.property.id === propertyId);
     if (!propRoom) return;
 
-    // Remove affected rooms from their other KBs
     for (const affected of affectedRooms || []) {
       const otherAssignment = allAssignments.find(
         (a) =>
@@ -446,7 +457,6 @@ function DetailContent() {
       }
     }
 
-    // Update local assignments state
     const affectedRoomNumbers = new Set((affectedRooms || []).map((a) => a.room));
     setAllAssignments((prev) =>
       prev.filter(
@@ -457,7 +467,6 @@ function DetailContent() {
       )
     );
 
-    // Select all rooms for this property
     const next = new Set(selectedRooms);
     propRoom.rooms.forEach((r) => next.add(`${propertyId}:${r}`));
     setSelectedRooms(next);
@@ -511,11 +520,18 @@ function DetailContent() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-[400px] w-full" />
-        <Skeleton className="h-[200px] w-full" />
+      <div className="flex gap-6 h-[calc(100vh-120px)]">
+        <div className="flex-1 space-y-4">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-[500px] w-full" />
+        </div>
+        <div className="w-80 space-y-4">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
       </div>
     );
   }
@@ -535,155 +551,149 @@ function DetailContent() {
 
   return (
     <TooltipProvider>
-      <div className="w-full space-y-8">
+      <div className="flex flex-col h-[calc(100vh-120px)]">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" render={<Link href="/knowledge-bases" />}>
               <ArrowLeft />
             </Button>
-            <h1 className="text-2xl font-semibold tracking-tight">Edit Knowledge Base</h1>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => {
+                if (name.trim() !== kb.name) saveName(name);
+              }}
+              placeholder="Knowledge base name..."
+              className="text-lg font-semibold border-none shadow-none px-0 h-auto focus-visible:ring-0 max-w-md"
+            />
           </div>
-          <SaveIndicator status={saveStatus} />
-        </div>
-
-        {/* Name field */}
-        <div className="space-y-2">
-          <Label htmlFor="kb-name">Name</Label>
-          <Input
-            id="kb-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => {
-              if (name.trim() !== kb.name) {
-                saveName(name);
-              }
-            }}
-            placeholder="Knowledge base name..."
-          />
-        </div>
-
-        {/* WYSIWYG Editor */}
-        <div className="space-y-2">
-          <Label>Content</Label>
-          <div className="rounded-lg border overflow-hidden">
-            {/* Toolbar */}
-            {editor && <EditorToolbar editor={editor} />}
-
-            {/* Editor area */}
-            <EditorContent editor={editor} className="w-full" />
+          <div className="flex items-center gap-3">
+            <SaveIndicator status={saveStatus} />
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+              <DialogTrigger
+                render={<Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" />}
+              >
+                <Trash2Icon className="h-4 w-4" />
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete Knowledge Base</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to delete &quot;{kb.name}&quot;?
+                    {totalSelectedRooms > 0 && (
+                      <>
+                        {' '}This will also remove {totalSelectedRooms} room assignment
+                        {totalSelectedRooms === 1 ? '' : 's'}.
+                      </>
+                    )}
+                    {' '}This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose render={<Button variant="outline" />}>
+                    Cancel
+                  </DialogClose>
+                  <Button variant="destructive" onClick={handleDelete}>
+                    Delete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Auto-saves as you type
-          </p>
         </div>
 
-        <Separator />
-
-        {/* Assign Rooms & Properties */}
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">Assign Rooms &amp; Properties</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Select which rooms this knowledge base applies to.
-              {totalSelectedRooms > 0 && (
-                <span className="ml-1 font-medium text-foreground">
-                  {totalSelectedRooms} room{totalSelectedRooms === 1 ? '' : 's'} selected.
-                </span>
-              )}
+        {/* Split screen */}
+        <div className="flex gap-6 flex-1 min-h-0">
+          {/* Left: Editor */}
+          <div className="flex-1 flex flex-col min-w-0">
+            <div className="rounded-lg border flex flex-col flex-1 overflow-hidden">
+              {editor && <EditorToolbar editor={editor} />}
+              <div className="flex-1 overflow-y-auto">
+                <EditorContent editor={editor} className="w-full h-full" />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2 shrink-0">
+              Auto-saves as you type. Content is stored as Markdown.
             </p>
           </div>
 
-          <div className="space-y-4">
-            {propertyRooms.map(({ property, rooms }) => {
-              if (rooms.length === 0) return null;
+          {/* Right: Property & Room Assignment */}
+          <div className="w-80 shrink-0 flex flex-col min-h-0">
+            <div className="mb-3 shrink-0">
+              <h2 className="text-sm font-semibold tracking-tight">Assign to Properties & Rooms</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {totalSelectedRooms > 0
+                  ? `${totalSelectedRooms} room${totalSelectedRooms === 1 ? '' : 's'} selected`
+                  : 'No rooms assigned yet'}
+              </p>
+            </div>
 
-              const checkState = getPropertyCheckState(property.id, rooms);
+            <div className="flex-1 overflow-y-auto space-y-1 pr-1">
+              {propertyRooms.map(({ property, rooms }) => {
+                if (rooms.length === 0) return null;
 
-              return (
-                <div
-                  key={property.id}
-                  className="rounded-lg border p-4 space-y-3"
-                >
-                  {/* Property header with checkbox */}
-                  <label className="flex items-center gap-3 cursor-pointer select-none">
-                    <PropertyCheckbox
-                      state={checkState}
-                      onChange={() => toggleProperty(property.id, rooms)}
-                    />
-                    <span className="font-medium text-sm">{property.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      ({rooms.length} room{rooms.length === 1 ? '' : 's'})
-                    </span>
-                  </label>
+                const checkState = getPropertyCheckState(property.id, rooms);
+                const isExpanded = expandedProperties.has(property.id);
+                const selectedCount = rooms.filter((r) => selectedRooms.has(`${property.id}:${r}`)).length;
 
-                  {/* Room badges */}
-                  <div className="flex flex-wrap gap-1.5 pl-7">
-                    {rooms.map((room) => {
-                      const key = `${property.id}:${room}`;
-                      const isSelected = selectedRooms.has(key);
-                      const otherKb = getOtherKbAssignment(property.id, room);
-
-                      return (
-                        <RoomBadge
-                          key={key}
-                          room={room}
-                          isSelected={isSelected}
-                          otherKbName={otherKb}
-                          onClick={() => toggleRoom(property.id, room)}
+                return (
+                  <div key={property.id} className="rounded-lg border overflow-hidden">
+                    {/* Property header */}
+                    <div className="flex items-center gap-2 px-3 py-2.5 hover:bg-muted/50 transition-colors">
+                      <PropertyCheckbox
+                        state={checkState}
+                        onChange={() => toggleProperty(property.id, rooms)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => togglePropertyExpand(property.id)}
+                        className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                      >
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-sm font-medium truncate">{property.name}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0 ml-auto">
+                          {selectedCount > 0 && `${selectedCount}/`}{rooms.length}
+                        </span>
+                        <ChevronRight
+                          className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200 ${
+                            isExpanded ? 'rotate-90' : ''
+                          }`}
                         />
-                      );
-                    })}
+                      </button>
+                    </div>
+
+                    {/* Room list (expandable) */}
+                    {isExpanded && (
+                      <div className="border-t bg-muted/20 px-3 py-2 space-y-1">
+                        {rooms.map((room) => {
+                          const key = `${property.id}:${room}`;
+                          const isSelected = selectedRooms.has(key);
+                          const otherKb = getOtherKbAssignment(property.id, room);
+
+                          return (
+                            <RoomRow
+                              key={key}
+                              room={room}
+                              isSelected={isSelected}
+                              otherKbName={otherKb}
+                              onClick={() => toggleRoom(property.id, room)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+
+              {propertyRooms.every((pr) => pr.rooms.length === 0) && (
+                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-xs">
+                  No rooms found. Rooms are populated from existing knowledge base assignments.
                 </div>
-              );
-            })}
-
-            {propertyRooms.every((pr) => pr.rooms.length === 0) && (
-              <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground text-sm">
-                No rooms found. Room data is populated from existing knowledge base assignments.
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
-
-        <Separator />
-
-        {/* Delete section */}
-        <div className="pb-8">
-          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-            <DialogTrigger
-              render={
-                <Button variant="destructive" />
-              }
-            >
-              <Trash2Icon data-icon="inline-start" />
-              Delete Knowledge Base
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Delete Knowledge Base</DialogTitle>
-                <DialogDescription>
-                  Are you sure you want to delete &quot;{kb.name}&quot;?
-                  {totalSelectedRooms > 0 && (
-                    <>
-                      {' '}This will also remove {totalSelectedRooms} room assignment
-                      {totalSelectedRooms === 1 ? '' : 's'}.
-                    </>
-                  )}
-                  {' '}This action cannot be undone.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <DialogClose render={<Button variant="outline" />}>
-                  Cancel
-                </DialogClose>
-                <Button variant="destructive" onClick={handleDelete}>
-                  Delete
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
 
         {/* Reassignment confirmation dialog */}
@@ -795,7 +805,7 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
   ];
 
   return (
-    <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1.5">
+    <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1.5 shrink-0">
       {toolbarItems.map((item) => (
         <Tooltip key={item.label}>
           <TooltipTrigger
@@ -850,8 +860,8 @@ function PropertyCheckbox({
   );
 }
 
-// Room badge component
-function RoomBadge({
+// Room row component (replaces badges for a cleaner list in the sidebar)
+function RoomRow({
   room,
   isSelected,
   otherKbName,
@@ -862,22 +872,30 @@ function RoomBadge({
   otherKbName: string | null;
   onClick: () => void;
 }) {
-  const badge = (
+  const row = (
     <button
       type="button"
       onClick={onClick}
       className={`
-        inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium
-        transition-all cursor-pointer select-none border
+        flex items-center justify-between w-full px-2 py-1.5 rounded-md text-xs transition-colors
         ${isSelected
-          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-          : otherKbName
-          ? 'bg-amber-50 text-amber-800 border-amber-200 hover:border-amber-300 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-700'
-          : 'bg-transparent text-muted-foreground border-border hover:border-ring hover:text-foreground'
+          ? 'bg-primary/10 text-primary font-medium'
+          : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'
         }
       `}
     >
-      {room}
+      <span className="flex items-center gap-2">
+        <span
+          className={`h-3 w-3 rounded border flex items-center justify-center shrink-0 ${
+            isSelected
+              ? 'bg-primary border-primary text-primary-foreground'
+              : 'border-input'
+          }`}
+        >
+          {isSelected && <Check className="h-2 w-2" />}
+        </span>
+        Room {room}
+      </span>
       {otherKbName && !isSelected && (
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
       )}
@@ -887,17 +905,15 @@ function RoomBadge({
   if (otherKbName && !isSelected) {
     return (
       <Tooltip>
-        <TooltipTrigger render={<span />}>
-          {badge}
+        <TooltipTrigger render={<span className="block" />}>
+          {row}
         </TooltipTrigger>
-        <TooltipContent>
-          Assigned to: {otherKbName}
-        </TooltipContent>
+        <TooltipContent side="left">Assigned to: {otherKbName}</TooltipContent>
       </Tooltip>
     );
   }
 
-  return badge;
+  return row;
 }
 
 // Save status indicator
@@ -926,11 +942,17 @@ export default function KnowledgeBaseDetailPage() {
   return (
     <Suspense
       fallback={
-        <div className="space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-[400px] w-full" />
-          <Skeleton className="h-[200px] w-full" />
+        <div className="flex gap-6 h-[calc(100vh-120px)]">
+          <div className="flex-1 space-y-4">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-[500px] w-full" />
+          </div>
+          <div className="w-80 space-y-4">
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
         </div>
       }
     >
