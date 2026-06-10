@@ -1,0 +1,25 @@
+# Molo dashboard — Next.js (server-rendered: Server Actions + service-role key).
+# This is NOT a static site (no `output: export`), so it must run as a Render
+# WEB SERVICE (`npm start`), not a Static Site with a publish directory.
+services:
+  - type: web
+    name: molo-dashboard
+    runtime: node
+    plan: starter
+    # If the dashboard is a subdirectory of the connected repo, keep this;
+    # if the repo root IS the dashboard, remove rootDir.
+    rootDir: molo-dashboard
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
