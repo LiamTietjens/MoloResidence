@@ -7,6 +7,12 @@ import {
   Building2,
   BookOpen,
   AlertTriangle,
+  Wrench,
+  Phone,
+  Link2,
+  Users,
+  DollarSign,
+  Flag,
 } from "lucide-react";
 
 const navGroups = [
@@ -24,9 +30,20 @@ const navGroups = [
     ],
   },
   {
+    label: "Operations",
+    items: [
+      { title: "Maintenance", href: "/maintenance", icon: Wrench },
+      { title: "Calls", href: "/calls", icon: Phone },
+      { title: "Booking Links", href: "/booking-links", icon: Link2 },
+    ],
+  },
+  {
     label: "Settings",
     items: [
+      { title: "Users", href: "/settings/users", icon: Users },
       { title: "Urgency Rules", href: "/settings/urgency-rules", icon: AlertTriangle },
+      { title: "Cost Rates", href: "/settings/cost-rates", icon: DollarSign },
+      { title: "Feature Flags", href: "/settings/feature-flags", icon: Flag },
     ],
   },
 ];

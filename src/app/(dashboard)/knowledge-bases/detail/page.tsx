@@ -3,8 +3,15 @@
 import { useEffect, useState, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase-browser';
 import { toast } from 'sonner';
+import {
+  getKbDetailData,
+  updateKbName,
+  updateKbContent,
+  saveRoomAssignments as saveRoomAssignmentsAction,
+  removeRoomFromKb,
+  deleteKnowledgeBase,
+} from '@/backend/knowledge-bases';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -145,24 +152,12 @@ function DetailContent() {
     }
 
     async function fetchData() {
-      const [{ data: kbData }, { data: properties }, { data: propRoomData }, { data: allKbRoomData }] = await Promise.all([
-        supabase
-          .from('knowledge_bases')
-          .select('id, name, content')
-          .eq('id', id!)
-          .single(),
-        supabase.from('properties').select('id, name').order('name'),
-        // Room list comes from property_rooms (stable, not affected by KB unassignment)
-        supabase
-          .from('property_rooms')
-          .select('property_id, room_number')
-          .order('room_number'),
-        // KB assignments still come from knowledge_base_rooms
-        supabase
-          .from('knowledge_base_rooms')
-          .select('room_number, knowledge_base_id, knowledge_bases(id, name, property_id)')
-          .order('room_number'),
-      ]);
+      const {
+        kb: kbData,
+        properties,
+        propRooms: propRoomData,
+        allKbRooms: allKbRoomData,
+      } = await getKbDetailData(id!);
 
       if (!kbData) {
         setNotFound(true);
@@ -245,11 +240,8 @@ function DetailContent() {
     async (newName: string) => {
       if (!id || !newName.trim()) return;
       setSaveStatus('saving');
-      const { error } = await supabase
-        .from('knowledge_bases')
-        .update({ name: newName.trim() })
-        .eq('id', id);
-      if (error) {
+      const res = await updateKbName(id, newName);
+      if (!res.ok) {
         toast.error('Failed to save name');
       }
       setSaveStatus('saved');
@@ -263,11 +255,8 @@ function DetailContent() {
     async (newContent: string) => {
       if (!id) return;
       setSaveStatus('saving');
-      const { error } = await supabase
-        .from('knowledge_bases')
-        .update({ content: newContent })
-        .eq('id', id);
-      if (error) {
+      const res = await updateKbContent(id, newContent);
+      if (!res.ok) {
         toast.error('Failed to save content');
       }
       setSaveStatus('saved');
@@ -282,25 +271,12 @@ function DetailContent() {
       if (!id) return;
       setSaveStatus('saving');
 
-      await supabase
-        .from('knowledge_base_rooms')
-        .delete()
-        .eq('knowledge_base_id', id);
-
-      const roomRows = [...rooms].map((key) => {
-        const [, room_number] = key.split(':');
-        return { knowledge_base_id: id, room_number };
-      });
-
-      if (roomRows.length > 0) {
-        const { error } = await supabase
-          .from('knowledge_base_rooms')
-          .insert(roomRows);
-        if (error) {
-          toast.error('Failed to save room assignments');
-          setSaveStatus('idle');
-          return;
-        }
+      const roomNumbers = [...rooms].map((key) => key.split(':')[1]);
+      const res = await saveRoomAssignmentsAction(id, roomNumbers);
+      if (!res.ok) {
+        toast.error('Failed to save room assignments');
+        setSaveStatus('idle');
+        return;
       }
 
       setSaveStatus('saved');
@@ -312,11 +288,7 @@ function DetailContent() {
   // Remove room from another KB
   const removeFromOtherKb = useCallback(
     async (otherKbId: string, roomNumber: string) => {
-      await supabase
-        .from('knowledge_base_rooms')
-        .delete()
-        .eq('knowledge_base_id', otherKbId)
-        .eq('room_number', roomNumber);
+      await removeRoomFromKb(otherKbId, roomNumber);
     },
     []
   );
@@ -505,18 +477,9 @@ function DetailContent() {
     if (!id) return;
     setDeleteDialogOpen(false);
 
-    await supabase
-      .from('knowledge_base_rooms')
-      .delete()
-      .eq('knowledge_base_id', id);
-
-    const { error } = await supabase
-      .from('knowledge_bases')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      toast.error(error.message);
+    const res = await deleteKnowledgeBase(id);
+    if (!res.ok) {
+      toast.error(res.error ?? 'Failed to delete');
       return;
     }
 
@@ -561,7 +524,7 @@ function DetailContent() {
         {/* Header */}
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" render={<Link href="/knowledge-bases" />}>
+            <Button variant="ghost" size="icon" nativeButton={false} render={<Link href="/knowledge-bases" />}>
               <ArrowLeft />
             </Button>
             <Input

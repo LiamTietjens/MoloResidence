@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth-context';
+import { useActionState } from 'react';
+import { loginAction, type LoginState } from '@/backend/auth';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -15,42 +14,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function LoginPage() {
-  const { user, login, loading } = useAuth();
-  const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    if (!loading && user) {
-      router.replace('/');
-    }
-  }, [loading, user, router]);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setPending(true);
-
-    const validUsername = 'piwkopiotr.sopot@gmail.com';
-    const validPassword = '12345678';
-
-    if (username === validUsername && password === validPassword) {
-      login({
-        id: '1',
-        username: validUsername,
-        displayName: 'Piotr',
-      });
-    } else {
-      setError('Invalid credentials');
-      setPending(false);
-    }
-  }
-
-  if (loading || user) {
-    return null;
-  }
+  const [state, formAction, pending] = useActionState<LoginState, FormData>(
+    loginAction,
+    {}
+  );
 
   return (
     <Card className="w-full max-w-sm">
@@ -59,7 +26,7 @@ export default function LoginPage() {
         <CardDescription>Sign in to your account</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="grid gap-4">
+        <form action={formAction} className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor="username">Username</Label>
             <Input
@@ -68,8 +35,6 @@ export default function LoginPage() {
               type="text"
               autoComplete="username"
               required
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
             />
           </div>
           <div className="grid gap-2">
@@ -80,17 +45,15 @@ export default function LoginPage() {
               type="password"
               autoComplete="current-password"
               required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          {error && (
+          {state.error && (
             <p className="text-sm text-destructive" aria-live="polite">
-              {error}
+              {state.error}
             </p>
           )}
           <Button type="submit" className="w-full" disabled={pending}>
-            {pending ? 'Signing in...' : 'Sign in'}
+            {pending ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
       </CardContent>

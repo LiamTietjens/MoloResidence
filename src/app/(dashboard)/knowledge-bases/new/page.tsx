@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase-browser';
 import { toast } from 'sonner';
+import { createKnowledgeBase } from '@/backend/knowledge-bases';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,31 +23,21 @@ export default function NewKnowledgeBasePage() {
 
     setCreating(true);
 
-    const { data: kb, error } = await supabase
-      .from('knowledge_bases')
-      .insert({
-        name: name.trim(),
-        kind: 'general',
-        property_id: null,
-        content: '',
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      toast.error(error.message);
+    const res = await createKnowledgeBase(name);
+    if (!res.ok || !res.id) {
+      toast.error(res.error ?? 'Failed to create knowledge base');
       setCreating(false);
       return;
     }
 
     toast.success('Knowledge base created');
-    router.push(`/knowledge-bases/detail?id=${kb.id}`);
+    router.push(`/knowledge-bases/detail?id=${res.id}`);
   }
 
   return (
     <div className="space-y-6 max-w-lg">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" render={<Link href="/knowledge-bases" />}>
+        <Button variant="ghost" size="icon" nativeButton={false} render={<Link href="/knowledge-bases" />}>
           <ArrowLeft />
         </Button>
         <h1 className="text-2xl font-semibold tracking-tight">New Knowledge Base</h1>
