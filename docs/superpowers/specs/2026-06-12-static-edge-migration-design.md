@@ -43,6 +43,14 @@ stays $0; the loading-screen interstitial disappears.
 | Session | Signed **JWT** in `Authorization: Bearer` header (not a cookie) | Static site (`*.onrender.com`) and functions (`*.supabase.co`) are different domains; a header token avoids `SameSite=None` + credentialed-CORS complexity |
 | Auth | **Real** auth — `users` table + bcrypt in the edge function | Staff dashboard with real guest/maintenance/call data on a public CDN URL; demo-mode login (any creds) is unacceptable there. (Currently the code is in demo mode; this restores the pre-demo real-auth behavior.) |
 
+## Scope amendment — 2026-06-12 (module pruning + single user)
+
+Confirmed during planning. These reduce the migration surface:
+
+- **Removed entirely** (pages + `src/backend/*.ts` modules + sidebar nav; never ported to the edge function): `settings/agent` (`agent-settings`), `settings/cost-rates` (`cost-rates`), `settings/feature-flags` (`feature-flags`). The voice agent's prompt/greeting/transfer-phone is managed in the separate `molo-voice-agent` service, not here.
+- **Kept** under settings: `settings/urgency-rules` and `users`.
+- **Single-user system:** the `users` table holds **exactly one** row. The `users` page collapses to a **single-account profile editor** (change display name + password) — no create / list / deactivate. The edge API exposes `GET /me` + `PATCH /me` instead of a `/users` collection. Authentication (bcrypt login) is still required for that one user.
+
 ## Architecture
 
 ```
@@ -93,12 +101,11 @@ Route groups mirror the existing 9 `src/backend/*.ts` modules; the query logic i
 | `maintenance` | `GET /maintenance`, `GET /maintenance/:id`, `PATCH /maintenance/:id` (status) |
 | `calls` (read-only) | `GET /calls`, `GET /calls/:id` |
 | `booking-links` | `GET /booking-links`, `POST /booking-links`, `POST /booking-links/:id/track` |
-| `users` | `GET /users`, `POST /users`, `PATCH /users/:id`, `POST /users/:id/deactivate` |
-| `agent-settings` (singleton) | `GET /agent-settings`, `PATCH /agent-settings` |
+| `me` (single account) | `GET /me`, `PATCH /me` (display name + password) |
 | `urgency-rules` | `GET /urgency-rules`, `PATCH /urgency-rules/reorder` |
-| `cost-rates` | `GET /cost-rates`, `PATCH /cost-rates` |
-| `feature-flags` | `GET /feature-flags`, `PATCH /feature-flags/:key` |
 | dashboard metrics | `GET /metrics` (aggregate for home page) |
+
+*Removed (not ported): `agent-settings`, `cost-rates`, `feature-flags` — see Scope amendment above.*
 
 The exact request/response shapes are derived 1:1 from the current
 `src/backend/*.ts` functions during implementation.
@@ -109,9 +116,10 @@ The exact request/response shapes are derived 1:1 from the current
 - **Delete `middleware.ts`** (can't run on a static host). Replace with a
   lightweight client auth-guard in the dashboard layout: no token → redirect to
   `/login`; a `401` from the API → drop token + redirect to `/login`.
-- Each of the **15 pages**: inline server `createServerClient()` reads become
-  **TanStack Query `useQuery`** hooks against the `api` function; Server Action
-  calls become **`useMutation`** → POST/PATCH/DELETE to the api.
+- Each remaining page (**12** after deleting the 3 removed settings pages):
+  inline server `createServerClient()` reads become **TanStack Query `useQuery`**
+  hooks against the `api` function; Server Action calls become **`useMutation`** →
+  POST/PATCH/DELETE to the api.
 - Add a small typed **`apiClient`** wrapper: base URL from `NEXT_PUBLIC_API_URL`,
   attaches the bearer token, centralizes error/401 handling.
 - **Remove from the bundle**: `src/backend/supabase.ts` (service-role client) and
