@@ -8,6 +8,7 @@ import {
   getKbDetailData,
   updateKbName,
   updateKbContent,
+  setDefaultGeneralKb,
   saveRoomAssignments as saveRoomAssignmentsAction,
   removeRoomFromKb,
   deleteKnowledgeBase,
@@ -70,6 +71,7 @@ interface KnowledgeBase {
   id: string;
   name: string;
   content: string | null;
+  is_default_general: boolean;
 }
 
 interface PropertyRooms {
@@ -92,6 +94,7 @@ function DetailContent() {
 
   const [kb, setKb] = useState<KnowledgeBase | null>(null);
   const [name, setName] = useState('');
+  const [isGeneral, setIsGeneral] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -167,6 +170,7 @@ function DetailContent() {
 
       setKb(kbData as KnowledgeBase);
       setName(kbData.name);
+      setIsGeneral(!!kbData.is_default_general);
 
       // Set editor content from markdown
       if (editor && kbData.content) {
@@ -249,6 +253,24 @@ function DetailContent() {
     },
     [id]
   );
+
+  // Toggle whether this KB is THE general knowledge base (only one allowed).
+  const toggleGeneral = useCallback(async () => {
+    if (!id) return;
+    const next = !isGeneral;
+    setIsGeneral(next); // optimistic
+    const res = await setDefaultGeneralKb(id, next);
+    if (!res.ok) {
+      setIsGeneral(!next); // revert
+      toast.error(res.error || 'Failed to update general knowledge base');
+      return;
+    }
+    toast.success(
+      next
+        ? 'Set as the general knowledge base'
+        : 'No longer the general knowledge base'
+    );
+  }, [id, isGeneral]);
 
   // Save content (markdown)
   const saveContent = useCallback(
@@ -538,6 +560,24 @@ function DetailContent() {
             />
           </div>
           <div className="flex items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={isGeneral ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={toggleGeneral}
+                  />
+                }
+              >
+                {isGeneral ? '★ General KB' : 'Set as general'}
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                The general knowledge base is preloaded on every call and used when a
+                caller isn&apos;t identified yet or asks a general question. Only one KB
+                can be the general one.
+              </TooltipContent>
+            </Tooltip>
             <SaveIndicator status={saveStatus} />
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <DialogTrigger

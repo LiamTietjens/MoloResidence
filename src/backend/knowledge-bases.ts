@@ -23,7 +23,7 @@ export async function createKnowledgeBase(
 }
 
 export interface KbDetailData {
-  kb: { id: string; name: string; content: string | null } | null;
+  kb: { id: string; name: string; content: string | null; is_default_general: boolean } | null;
   properties: { id: string; name: string }[];
   propRooms: { property_id: string; room_number: string }[];
   allKbRooms: {
@@ -38,7 +38,7 @@ export async function getKbDetailData(id: string): Promise<KbDetailData> {
   const supabase = createServerClient();
   const [{ data: kb }, { data: properties }, { data: propRooms }, { data: allKbRooms }] =
     await Promise.all([
-      supabase.from('knowledge_bases').select('id, name, content').eq('id', id).single(),
+      supabase.from('knowledge_bases').select('id, name, content, is_default_general').eq('id', id).single(),
       supabase.from('properties').select('id, name').order('name'),
       supabase.from('property_rooms').select('property_id, room_number').order('room_number'),
       supabase
@@ -60,6 +60,30 @@ export async function updateKbName(id: string, name: string): Promise<ActionResu
   const { error } = await supabase
     .from('knowledge_bases')
     .update({ name: name.trim() })
+    .eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath('/knowledge-bases');
+  return { ok: true };
+}
+
+/**
+ * Mark (or unmark) a KB as THE general knowledge base — the one the voice agent
+ * preloads at call start and uses for callers who aren't identified yet or ask a
+ * general question. Only one KB can be general at a time, so setting a new one
+ * clears the previous (the DB also enforces this via a unique partial index).
+ */
+export async function setDefaultGeneralKb(id: string, value: boolean): Promise<ActionResult> {
+  const supabase = createServerClient();
+  if (value) {
+    const { error: clearError } = await supabase
+      .from('knowledge_bases')
+      .update({ is_default_general: false })
+      .eq('is_default_general', true);
+    if (clearError) return { ok: false, error: clearError.message };
+  }
+  const { error } = await supabase
+    .from('knowledge_bases')
+    .update({ is_default_general: value })
     .eq('id', id);
   if (error) return { ok: false, error: error.message };
   revalidatePath('/knowledge-bases');
