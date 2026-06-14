@@ -10,7 +10,7 @@ export default async function KnowledgeBasesPage() {
   const supabase = createServerClient();
   const { data } = await supabase
     .from('knowledge_bases')
-    .select('id, name, content, updated_at, knowledge_base_rooms(room_number)')
+    .select('id, name, content, updated_at, is_default_general, knowledge_base_rooms(room_number)')
     .order('updated_at', { ascending: false });
 
   const knowledgeBases = (data ?? []) as KbListItem[];

@@ -2,7 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -11,13 +14,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Search, BookOpen } from 'lucide-react';
+import { Search, BookOpen, Star } from 'lucide-react';
+import { setDefaultGeneralKb } from '@/backend/knowledge-bases';
 
 export interface KbListItem {
   id: string;
   name: string;
   content: string | null;
   updated_at: string | null;
+  is_default_general: boolean;
   knowledge_base_rooms: { room_number: string }[];
 }
 
@@ -34,10 +39,31 @@ export function KbListClient({
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  // Which KB is the general/default one (only one allowed). Optimistic local state.
+  const [defaultId, setDefaultId] = useState<string | null>(
+    knowledgeBases.find((kb) => kb.is_default_general)?.id ?? null
+  );
 
   const filtered = knowledgeBases.filter((kb) =>
     !search ? true : kb.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  async function handleSetDefault(
+    e: React.MouseEvent,
+    id: string
+  ): Promise<void> {
+    e.stopPropagation(); // don't navigate into the row
+    const prev = defaultId;
+    setDefaultId(id); // optimistic
+    const res = await setDefaultGeneralKb(id, true);
+    if (!res.ok) {
+      setDefaultId(prev);
+      toast.error(res.error || 'Failed to set the general knowledge base');
+      return;
+    }
+    toast.success('Set as the general knowledge base');
+    router.refresh();
+  }
 
   return (
     <>
@@ -58,6 +84,7 @@ export function KbListClient({
               <TableHead>Name</TableHead>
               <TableHead>Assigned Rooms</TableHead>
               <TableHead>Content</TableHead>
+              <TableHead className="text-right">General KB</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -84,13 +111,28 @@ export function KbListClient({
                     <TableCell className="text-muted-foreground text-sm max-w-md truncate">
                       {contentPreview(kb.content)}
                     </TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      {defaultId === kb.id ? (
+                        <Badge className="gap-1">
+                          <Star className="h-3 w-3" /> Default
+                        </Badge>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => handleSetDefault(e, kb.id)}
+                        >
+                          Set as default
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 );
               })
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={3}
+                  colSpan={4}
                   className="text-center text-muted-foreground py-12"
                 >
                   {search
