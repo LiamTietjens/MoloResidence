@@ -44,5 +44,33 @@ export function buildMaintenanceRoutes(makeClient: ClientFactory = serviceClient
     return c.json({ ok: true });
   });
 
+  // Ported from src/backend/maintenance.ts createTicket():
+  //   insert({ property_id, room_number, description, urgency, status:'open', created_via:'dashboard' })
+  app.post('/', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (
+      !body ||
+      typeof body.property_id !== 'string' ||
+      typeof body.room_number !== 'string' ||
+      typeof body.description !== 'string' ||
+      typeof body.urgency !== 'string'
+    ) {
+      return c.json({ error: 'property_id, room_number, description and urgency are required.' }, 400);
+    }
+    const { error } = await makeClient().from('maintenance_tickets').insert({
+      property_id: body.property_id,
+      room_number: body.room_number,
+      description: body.description,
+      urgency: body.urgency,
+      status: 'open',
+      created_via: 'dashboard',
+    });
+    if (error) {
+      console.error('POST /maintenance insert failed:', error);
+      return c.json({ error: 'Request failed.' }, 400);
+    }
+    return c.json({ ok: true });
+  });
+
   return app;
 }

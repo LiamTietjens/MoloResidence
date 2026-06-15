@@ -21,6 +21,7 @@ function fakeClient(tables: Record<string, unknown[]>) {
         single,
         maybeSingle: single,
         update() { return { eq() { return Promise.resolve({ error: null }); } }; },
+        insert() { return Promise.resolve({ error: null }); },
       };
       return builder;
     },
@@ -74,6 +75,25 @@ Deno.test('PATCH /maintenance/:id with a malformed body returns 400', async () =
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: '{ not json',
+  });
+  assertEquals(res.status, 400);
+});
+
+Deno.test('POST /maintenance creates a ticket', async () => {
+  const res = await app(fakeClient({})).request('/maintenance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ property_id: 'p1', room_number: '101', description: 'Leak', urgency: 'high' }),
+  });
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).ok, true);
+});
+
+Deno.test('POST /maintenance with missing fields returns 400', async () => {
+  const res = await app(fakeClient({})).request('/maintenance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room_number: '101' }),
   });
   assertEquals(res.status, 400);
 });
