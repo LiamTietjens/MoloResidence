@@ -66,6 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.replace('/login');
   }, [router]);
 
+  useEffect(() => {
+    const handleUnauthorized = () => logout();
+    window.addEventListener('molo:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('molo:unauthorized', handleUnauthorized);
+    };
+  }, [logout]);
+
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}

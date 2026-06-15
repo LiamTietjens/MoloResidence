@@ -27,6 +27,9 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   const res = await fetch(`${baseUrl()}${path}`, { ...init, headers });
   if (res.status === 401) {
     clearToken();
+    if (typeof window !== 'undefined' && !path.startsWith('/auth/login')) {
+      window.dispatchEvent(new CustomEvent('molo:unauthorized'));
+    }
     throw new Error('Unauthorized');
   }
   const body = await res.json().catch(() => ({}));

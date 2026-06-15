@@ -34,4 +34,30 @@ describe('apiFetch', () => {
     await expect(apiFetch('/properties')).rejects.toThrow();
     expect(localStorage.getItem('molo_token')).toBeNull();
   });
+
+  it('dispatches molo:unauthorized on 401 for non-login paths', async () => {
+    setToken('tok123');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+    );
+    const spy = vi.spyOn(window, 'dispatchEvent');
+    await expect(apiFetch('/properties')).rejects.toThrow();
+    expect(spy).toHaveBeenCalled();
+    const dispatchedEvent = spy.mock.calls.find(
+      ([evt]) => evt instanceof CustomEvent && (evt as CustomEvent).type === 'molo:unauthorized'
+    );
+    expect(dispatchedEvent).toBeDefined();
+  });
+
+  it('does NOT dispatch molo:unauthorized on 401 for /auth/login', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+    );
+    const spy = vi.spyOn(window, 'dispatchEvent');
+    await expect(apiFetch('/auth/login')).rejects.toThrow();
+    const unauthorizedDispatched = spy.mock.calls.some(
+      ([evt]) => evt instanceof CustomEvent && (evt as CustomEvent).type === 'molo:unauthorized'
+    );
+    expect(unauthorizedDispatched).toBe(false);
+  });
 });
