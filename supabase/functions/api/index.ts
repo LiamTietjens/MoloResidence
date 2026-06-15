@@ -8,6 +8,7 @@ import { buildCallRoutes } from './routes/calls.ts';
 import { buildUrgencyRuleRoutes } from './routes/urgency-rules.ts';
 import { buildMetricsRoutes } from './routes/metrics.ts';
 import { buildMeRoutes } from './routes/me.ts';
+import { buildKnowledgeBaseRoutes } from './routes/knowledge-bases.ts';
 import type { AppEnv } from './lib/types.ts';
 
 const app = new Hono<AppEnv>().basePath('/api');
@@ -49,6 +50,10 @@ app.route('/metrics', buildMetricsRoutes());
 app.use('/me', requireAuth);
 app.use('/me/*', requireAuth);
 app.route('/me', buildMeRoutes());
+
+app.use('/knowledge-bases', requireAuth);
+app.use('/knowledge-bases/*', requireAuth);
+app.route('/knowledge-bases', buildKnowledgeBaseRoutes());
 
 Deno.serve(app.fetch);
 
