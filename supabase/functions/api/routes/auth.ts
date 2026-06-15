@@ -13,6 +13,10 @@ export interface UserRecord {
 
 export type FindUser = (username: string) => Promise<UserRecord | null>;
 
+// Computed once so every login runs exactly one bcrypt comparison, regardless
+// of whether the user exists — removes the username-enumeration timing leak.
+const DUMMY_HASH = bcrypt.hashSync('molo-timing-uniform-dummy', 10);
+
 const defaultFindUser: FindUser = async (username) => {
   const { data } = await serviceClient()
     .from('users')
@@ -32,12 +36,11 @@ export function buildAuthRoutes(findUser: FindUser = defaultFindUser) {
     }
 
     const user = await findUser(String(username).trim().toLowerCase());
-    if (!user || !user.is_active) {
+    const hash = user && user.is_active ? user.password_hash : DUMMY_HASH;
+    const ok = await bcrypt.compare(String(password), hash);
+    if (!user || !user.is_active || !ok) {
       return c.json({ error: 'Invalid credentials.' }, 401);
     }
-
-    const ok = await bcrypt.compare(String(password), user.password_hash);
-    if (!ok) return c.json({ error: 'Invalid credentials.' }, 401);
 
     const secret = Deno.env.get('SESSION_SECRET');
     if (!secret) return c.json({ error: 'Server misconfigured' }, 500);

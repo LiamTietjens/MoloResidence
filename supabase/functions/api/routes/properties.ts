@@ -27,42 +27,69 @@ export function buildPropertyRoutes(makeClient: ClientFactory = serviceClient) {
   });
 
   app.post('/', async (c) => {
-    const body = await c.req.json();
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: 'Invalid JSON body.' }, 400);
     const { data, error } = await makeClient()
-      .from('properties').insert(body).select('id').single();
-    if (error) return c.json({ error: error.message }, 400);
+      .from('properties').insert(body).select('id').maybeSingle();
+    if (error || !data) {
+      console.error('POST /properties insert failed:', error);
+      return c.json({ error: 'Request failed.' }, 400);
+    }
     return c.json({ ok: true, id: data.id });
   });
 
   app.patch('/:id', async (c) => {
-    const patch = await c.req.json();
+    const patch = await c.req.json().catch(() => null);
+    if (!patch) return c.json({ error: 'Invalid JSON body.' }, 400);
     const { error } = await makeClient()
       .from('properties').update(patch).eq('id', c.req.param('id'));
-    if (error) return c.json({ error: error.message }, 400);
+    if (error) {
+      console.error('PATCH /properties/:id update failed:', error);
+      return c.json({ error: 'Request failed.' }, 400);
+    }
     return c.json({ ok: true });
   });
 
   app.delete('/:id', async (c) => {
     const { error } = await makeClient()
       .from('properties').delete().eq('id', c.req.param('id'));
-    if (error) return c.json({ error: error.message }, 400);
+    if (error) {
+      console.error('DELETE /properties/:id failed:', error);
+      return c.json({ error: 'Request failed.' }, 400);
+    }
     return c.json({ ok: true });
   });
 
   app.post('/:id/rooms', async (c) => {
-    const { room_number } = await c.req.json();
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: 'Invalid JSON body.' }, 400);
+    const { room_number } = body;
+    if (typeof room_number !== 'string' || room_number.trim() === '') {
+      return c.json({ error: 'room_number is required.' }, 400);
+    }
     const { error } = await makeClient()
       .from('property_rooms').insert({ property_id: c.req.param('id'), room_number });
-    if (error) return c.json({ error: error.message }, 400);
+    if (error) {
+      console.error('POST /properties/:id/rooms failed:', error);
+      return c.json({ error: 'Request failed.' }, 400);
+    }
     return c.json({ ok: true });
   });
 
   app.delete('/:id/rooms', async (c) => {
-    const { room_number } = await c.req.json();
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: 'Invalid JSON body.' }, 400);
+    const { room_number } = body;
+    if (typeof room_number !== 'string' || room_number.trim() === '') {
+      return c.json({ error: 'room_number is required.' }, 400);
+    }
     const { error } = await makeClient()
       .from('property_rooms').delete()
       .eq('property_id', c.req.param('id')).eq('room_number', room_number);
-    if (error) return c.json({ error: error.message }, 400);
+    if (error) {
+      console.error('DELETE /properties/:id/rooms failed:', error);
+      return c.json({ error: 'Request failed.' }, 400);
+    }
     return c.json({ ok: true });
   });
 

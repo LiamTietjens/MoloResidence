@@ -19,14 +19,31 @@ function fakeClient(tables: Record<string, unknown[]>) {
         order() { return Promise.resolve({ data: rows, error: null }); },
         eq() { return builder; },
         insert(payload: unknown) {
+          // property_rooms insert is awaited directly: `await sb.from(t).insert(...)`.
+          const result = { data: { id: 'new-id' }, error: null };
           return {
             select() {
-              return { single() { return Promise.resolve({ data: { id: 'new-id' }, error: null }); } };
+              return {
+                single() { return Promise.resolve(result); },
+                maybeSingle() { return Promise.resolve(result); },
+              };
+            },
+            then(onFulfilled: (value: { data: unknown; error: null }) => unknown) {
+              return Promise.resolve({ data: null, error: null }).then(onFulfilled);
             },
           };
         },
         update() { return { eq() { return Promise.resolve({ error: null }); } }; },
-        delete() { return { eq() { return Promise.resolve({ error: null }); } }; },
+        delete() {
+          // property delete: `.delete().eq(...)`; rooms delete: `.delete().eq().eq()`.
+          const eqResult: Record<string, unknown> = {
+            eq() { return eqResult; },
+            then(onFulfilled: (value: { error: null }) => unknown) {
+              return Promise.resolve({ error: null }).then(onFulfilled);
+            },
+          };
+          return { eq() { return eqResult; } };
+        },
       };
       return builder;
     },
@@ -63,6 +80,35 @@ Deno.test('POST /properties returns the new id', async () => {
 
 Deno.test('DELETE /properties/:id succeeds', async () => {
   const res = await app(fakeClient({})).request('/properties/p1', { method: 'DELETE' });
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).ok, true);
+});
+
+Deno.test('POST /properties with a malformed body returns 400', async () => {
+  const res = await app(fakeClient({})).request('/properties', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{ not json',
+  });
+  assertEquals(res.status, 400);
+});
+
+Deno.test('POST /properties/:id/rooms adds a room', async () => {
+  const res = await app(fakeClient({})).request('/properties/p1/rooms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room_number: '202' }),
+  });
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).ok, true);
+});
+
+Deno.test('DELETE /properties/:id/rooms removes a room', async () => {
+  const res = await app(fakeClient({})).request('/properties/p1/rooms', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ room_number: '202' }),
+  });
   assertEquals(res.status, 200);
   assertEquals((await res.json()).ok, true);
 });

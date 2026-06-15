@@ -61,3 +61,29 @@ Deno.test('login returns 401 when the user does not exist', async () => {
   });
   assertEquals(res.status, 401);
 });
+
+Deno.test('login returns the same generic message for unknown user and wrong password', async () => {
+  const user: UserRecord = {
+    id: 'u1', username: 'admin', display_name: 'Admin',
+    password_hash: bcrypt.hashSync('molo1234', 10), is_active: true,
+  };
+
+  const unknownRes = await appWith(null).request('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'ghost', password: 'whatever' }),
+  });
+  const wrongPwRes = await appWith(user).request('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'wrong' }),
+  });
+
+  assertEquals(unknownRes.status, 401);
+  assertEquals(wrongPwRes.status, 401);
+  const unknownBody = await unknownRes.json();
+  const wrongPwBody = await wrongPwRes.json();
+  assertEquals(unknownBody.error, 'Invalid credentials.');
+  assertEquals(wrongPwBody.error, 'Invalid credentials.');
+  assertEquals(unknownBody.error, wrongPwBody.error);
+});
