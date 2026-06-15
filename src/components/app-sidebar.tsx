@@ -11,8 +11,6 @@ import {
   Phone,
   Link2,
   Users,
-  DollarSign,
-  Flag,
 } from "lucide-react";
 
 const navGroups = [
@@ -42,8 +40,6 @@ const navGroups = [
     items: [
       { title: "Users", href: "/settings/users", icon: Users },
       { title: "Urgency Rules", href: "/settings/urgency-rules", icon: AlertTriangle },
-      { title: "Cost Rates", href: "/settings/cost-rates", icon: DollarSign },
-      { title: "Feature Flags", href: "/settings/feature-flags", icon: Flag },
     ],
   },
 ];
