@@ -1,17 +1,19 @@
 'use client';
 
 import { LogOut } from 'lucide-react';
-import { logoutAction } from '@/backend/auth';
+import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 
 export function UserMenu({ displayName }: { displayName: string | null }) {
+  const { logout } = useAuth();
   return (
-    <form action={logoutAction} className="flex items-center gap-3">
+    <div className="flex items-center gap-3">
       {displayName && (
         <span className="text-sm text-muted-foreground">{displayName}</span>
       )}
       <Button
-        type="submit"
+        type="button"
+        onClick={() => logout()}
         variant="ghost"
         size="sm"
         className="gap-2 text-muted-foreground hover:text-foreground"
@@ -19,6 +21,6 @@ export function UserMenu({ displayName }: { displayName: string | null }) {
         <LogOut className="h-4 w-4" />
         <span>Sign out</span>
       </Button>
-    </form>
+    </div>
   );
 }
