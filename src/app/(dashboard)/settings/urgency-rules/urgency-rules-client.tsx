@@ -6,21 +6,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { saveUrgencyExamples } from '@/backend/urgency-rules';
-
-export interface UrgencyRule {
-  id: string;
-  level: string;
-  name: string;
-  examples: string[];
-  keywords: string[];
-  sort_order: number;
-}
-
-export const LEVELS = [
-  { level: 'critical', label: 'Critical', color: 'bg-red-100 text-red-800 border-red-200' },
-  { level: 'high', label: 'High', color: 'bg-orange-100 text-orange-800 border-orange-200' },
-  { level: 'medium', label: 'Medium', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-] as const;
+import { LEVELS, type UrgencyRule } from './levels';
 
 export function UrgencyRulesEditor({
   rules,

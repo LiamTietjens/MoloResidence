@@ -1,5 +1,6 @@
 import { createServerClient } from '@/backend/supabase';
-import { UrgencyRulesEditor, type UrgencyRule, LEVELS } from './urgency-rules-client';
+import { UrgencyRulesEditor } from './urgency-rules-client';
+import { LEVELS, type UrgencyRule } from './levels';
 
 export const dynamic = 'force-dynamic';
 
