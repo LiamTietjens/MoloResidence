@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,12 +24,12 @@ import {
   normalizeE164,
 } from '@/components/shared/phone-input';
 import { PlusIcon, XIcon } from 'lucide-react';
-import { createProperty, addRoom } from '@/backend/properties';
+import { createProperty, addRoom } from '@/lib/properties-api';
 
 const TIMEZONES = ['Europe/Warsaw', 'Europe/London', 'Europe/Berlin', 'UTC'];
 
 export function NewPropertyDrawer() {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -41,7 +41,31 @@ export function NewPropertyDrawer() {
   const [notes, setNotes] = useState('');
   const [rooms, setRooms] = useState<string[]>([]);
   const [newRoom, setNewRoom] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+
+  const createMutation = useMutation({
+    mutationFn: async (input: {
+      name: string;
+      address: string;
+      kwhotel_hotel_id: number | null;
+      transfer_phone: string | null;
+      aliases: string[];
+      language_default: string;
+      timezone: string;
+      notes: string | null;
+      rooms: string[];
+    }) => {
+      const { rooms: stagedRooms, ...propertyInput } = input;
+      const res = await createProperty(propertyInput);
+      if (res.id && stagedRooms.length > 0) {
+        await Promise.all(stagedRooms.map((r) => addRoom(res.id!, r)));
+      }
+      return res;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['properties'] }),
+  });
+
+  const submitting = createMutation.isPending;
 
   function reset() {
     setName('');
@@ -89,30 +113,27 @@ export function NewPropertyDrawer() {
       return;
     }
 
-    setSubmitting(true);
-    const res = await createProperty({
-      name: name.trim(),
-      address: address.trim(),
-      kwhotel_hotel_id: kwhotelValue,
-      transfer_phone: transferPhone.trim() ? normalizeE164(transferPhone) : null,
-      aliases,
-      language_default: language,
-      timezone,
-      notes: notes.trim() || null,
-    });
-    if (res.ok && res.id && rooms.length > 0) {
-      await Promise.all(rooms.map((r) => addRoom(res.id!, r)));
-    }
-    setSubmitting(false);
-
-    if (!res.ok) {
-      toast.error(`Failed to create property: ${res.error}`);
+    try {
+      await createMutation.mutateAsync({
+        name: name.trim(),
+        address: address.trim(),
+        kwhotel_hotel_id: kwhotelValue,
+        transfer_phone: transferPhone.trim() ? normalizeE164(transferPhone) : null,
+        aliases,
+        language_default: language,
+        timezone,
+        notes: notes.trim() || null,
+        rooms,
+      });
+    } catch (err) {
+      toast.error(
+        `Failed to create property: ${err instanceof Error ? err.message : 'Unknown error'}`
+      );
       return;
     }
     toast.success('Property created');
     reset();
     setOpen(false);
-    router.refresh();
   }
 
   return (

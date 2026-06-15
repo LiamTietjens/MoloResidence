@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,28 +28,21 @@ import {
   InfoIcon,
   DownloadIcon,
 } from 'lucide-react';
-import type { TablesUpdate } from '@/backend/types';
 import {
   updateProperty,
   deleteProperty,
   addRoom,
   removeRoom,
-  importRoomsFromKwhotel,
-} from '@/backend/properties';
+  type PropertyWithRooms,
+  type PropertyInput,
+} from '@/lib/properties-api';
+
+export type { PropertyWithRooms };
 
 const TIMEZONES = ['Europe/Warsaw', 'Europe/London', 'Europe/Berlin', 'UTC'];
 
-export interface PropertyWithRooms {
-  id: string;
-  name: string;
-  address: string;
-  kwhotel_hotel_id: number | null;
-  transfer_phone: string | null;
-  aliases: string[];
-  language_default: string;
-  timezone: string;
-  notes: string | null;
-  rooms: string[];
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Unknown error';
 }
 
 export function PropertiesList({
@@ -84,7 +77,7 @@ function PropertyAccordionItem({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [name, setName] = useState(property.name);
   const [address, setAddress] = useState(property.address);
   const [kwHotelId, setKwHotelId] = useState(
@@ -98,9 +91,17 @@ function PropertyAccordionItem({
   const [rooms, setRooms] = useState<string[]>(property.rooms);
   const [newRoom, setNewRoom] = useState('');
   const [addingRoom, setAddingRoom] = useState(false);
-  const [importing, setImporting] = useState(false);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  function invalidate() {
+    queryClient.invalidateQueries({ queryKey: ['properties'] });
+  }
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteProperty(id),
+    onSuccess: invalidate,
+  });
 
   useEffect(() => {
     setName(property.name);
@@ -114,12 +115,13 @@ function PropertyAccordionItem({
     setRooms(property.rooms);
   }, [property]);
 
-  async function savePatch(patch: TablesUpdate<'properties'>) {
-    const res = await updateProperty(property.id, patch);
-    if (!res.ok) {
-      toast.error(`Failed to save: ${res.error}`);
-    } else {
+  async function savePatch(patch: Partial<PropertyInput>) {
+    try {
+      await updateProperty(property.id, patch);
       Object.assign(property, patch);
+      invalidate();
+    } catch (err) {
+      toast.error(`Failed to save: ${errorMessage(err)}`);
     }
   }
 
@@ -156,47 +158,30 @@ function PropertyAccordionItem({
       return;
     }
     setAddingRoom(true);
-    const res = await addRoom(property.id, roomNumber);
-    setAddingRoom(false);
-    if (!res.ok) {
-      toast.error(`Failed to add room: ${res.error}`);
-    } else {
+    try {
+      await addRoom(property.id, roomNumber);
       setRooms((prev) =>
         [...prev, roomNumber].sort((a, b) =>
           a.localeCompare(b, undefined, { numeric: true })
         )
       );
       setNewRoom('');
+      invalidate();
+    } catch (err) {
+      toast.error(`Failed to add room: ${errorMessage(err)}`);
+    } finally {
+      setAddingRoom(false);
     }
   }
 
   async function handleRemoveRoom(roomNumber: string) {
-    const res = await removeRoom(property.id, roomNumber);
-    if (!res.ok) {
-      toast.error(`Failed to remove room: ${res.error}`);
-    } else {
+    try {
+      await removeRoom(property.id, roomNumber);
       setRooms((prev) => prev.filter((r) => r !== roomNumber));
+      invalidate();
+    } catch (err) {
+      toast.error(`Failed to remove room: ${errorMessage(err)}`);
     }
-  }
-
-  async function handleImportRooms() {
-    if (!kwHotelId.trim()) {
-      toast.error('Set a KW Hotel ID first, then import.');
-      return;
-    }
-    setImporting(true);
-    const res = await importRoomsFromKwhotel(property.id);
-    setImporting(false);
-    if (!res.ok) {
-      toast.error(`Import failed: ${res.error}`);
-      return;
-    }
-    toast.success(
-      res.added === 0
-        ? `Rooms up to date (${res.total} in KWHotel).`
-        : `Imported ${res.added} room${res.added === 1 ? '' : 's'} from KWHotel.`
-    );
-    router.refresh();
   }
 
   return (
@@ -415,16 +400,11 @@ function PropertyAccordionItem({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={handleImportRooms}
-                disabled={importing}
-                title={
-                  kwHotelId.trim()
-                    ? 'Import rooms from KWHotel for this property'
-                    : 'Set a KW Hotel ID first'
-                }
+                disabled
+                title="KWHotel import coming soon"
               >
                 <DownloadIcon data-icon="inline-start" />
-                {importing ? 'Importing…' : 'Import from KWHotel'}
+                Import from KWHotel
               </Button>
             </div>
             {rooms.length > 0 ? (
@@ -493,13 +473,12 @@ function PropertyAccordionItem({
               }
               confirmLabel="Delete"
               onConfirm={async () => {
-                const res = await deleteProperty(property.id);
-                if (!res.ok) {
-                  toast.error(`Failed to delete: ${res.error}`);
-                  return;
+                try {
+                  await deleteMutation.mutateAsync(property.id);
+                  toast.success('Property deleted');
+                } catch (err) {
+                  toast.error(`Failed to delete: ${errorMessage(err)}`);
                 }
-                toast.success('Property deleted');
-                router.refresh();
               }}
             />
           </div>
