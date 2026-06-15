@@ -51,6 +51,11 @@ Confirmed during planning. These reduce the migration surface:
 - **Kept** under settings: `settings/urgency-rules` and `users`.
 - **Single-user system:** the `users` table holds **exactly one** row. The `users` page collapses to a **single-account profile editor** (change display name + password) — no create / list / deactivate. The edge API exposes `GET /me` + `PATCH /me` instead of a `/users` collection. Authentication (bcrypt login) is still required for that one user.
 
+### Amendment 2 — 2026-06-16 (from client meeting; folded into Slice 2)
+
+- **Remove Booking Links too.** Delete the `/booking-links` page + nav (and the `/booking-links` link in calls detail). The `booking_links` DB table stays (external system writes it); only the dashboard UI goes. So the removed set is now: agent-settings, cost-rates, feature-flags, **booking-links**.
+- **General Knowledge Base section (UX reframe, no schema change).** Replace the confusing per-KB *"Set as default/general"* button/toggle with a first-class **"General Knowledge Base"** section on the KB list page (top), above the room-specific KBs. It shows/edits the single `is_default_general = true` KB (create one there if none). The per-row toggle and the editor's "Set as general" toggle are removed; the editor hides the room-assignment panel when editing the general KB. **Section-only** model (no "promote an existing KB"). Backed entirely by the existing `is_default_general` flag + unique partial index. Detailed in plan `docs/superpowers/plans/2026-06-16-static-edge-migration-slice2.md`.
+
 ## Architecture
 
 ```
