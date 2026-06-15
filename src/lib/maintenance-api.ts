@@ -19,3 +19,12 @@ export function updateMaintenanceTicket(
 ): Promise<{ ok: boolean }> {
   return apiFetch(`/maintenance/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
+
+export function createMaintenanceTicket(input: {
+  property_id: string;
+  room_number: string;
+  description: string;
+  urgency: string;
+}): Promise<{ ok: boolean }> {
+  return apiFetch('/maintenance', { method: 'POST', body: JSON.stringify(input) });
+}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { Tables } from '@/backend/types';
 import { Button } from '@/components/ui/button';
@@ -34,7 +35,7 @@ import {
 import { StatusBadge } from '@/components/shared/status-badge';
 import { RelativeTime } from '@/components/shared/relative-time';
 import { PlusIcon, Wrench } from 'lucide-react';
-import { createTicket } from '@/backend/maintenance';
+import { createMaintenanceTicket } from '@/lib/maintenance-api';
 
 type Ticket = Tables<'maintenance_tickets'>;
 type Property = Tables<'properties'>;
@@ -66,6 +67,7 @@ export function MaintenanceClient({
   roomsByProperty: Record<string, string[]>;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<Set<string>>(
@@ -130,7 +132,9 @@ export function MaintenanceClient({
             properties={properties}
             roomsByProperty={roomsByProperty}
             onClose={() => setCreateOpen(false)}
-            onCreated={() => router.refresh()}
+            onCreated={() =>
+              queryClient.invalidateQueries({ queryKey: ['maintenance'] })
+            }
           />
         </Dialog>
       </div>
@@ -283,7 +287,11 @@ function NewTicketDialog({
   const [roomNumber, setRoomNumber] = useState('');
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState<string>('medium');
-  const [saving, setSaving] = useState(false);
+
+  const createMutation = useMutation({
+    mutationFn: createMaintenanceTicket,
+  });
+  const saving = createMutation.isPending;
 
   const rooms = propertyId ? roomsByProperty[propertyId] ?? [] : [];
 
@@ -306,17 +314,17 @@ function NewTicketDialog({
       return;
     }
 
-    setSaving(true);
-    const res = await createTicket({
-      property_id: propertyId,
-      room_number: roomNumber.trim(),
-      description: description.trim(),
-      urgency,
-    });
-    setSaving(false);
-
-    if (!res.ok) {
-      toast.error(`Failed to create ticket: ${res.error}`);
+    try {
+      await createMutation.mutateAsync({
+        property_id: propertyId,
+        room_number: roomNumber.trim(),
+        description: description.trim(),
+        urgency,
+      });
+    } catch (err) {
+      toast.error(
+        `Failed to create ticket: ${err instanceof Error ? err.message : 'Unknown error'}`
+      );
       return;
     }
 

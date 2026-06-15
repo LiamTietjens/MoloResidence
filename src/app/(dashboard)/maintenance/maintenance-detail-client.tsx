@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { Tables, TablesUpdate } from '@/backend/types';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ import {
 import { StatusBadge } from '@/components/shared/status-badge';
 import { RelativeTime } from '@/components/shared/relative-time';
 import { ArrowLeft, Phone, Building2 } from 'lucide-react';
-import { updateTicket } from '@/backend/maintenance';
+import { updateMaintenanceTicket } from '@/lib/maintenance-api';
 
 type Ticket = Tables<'maintenance_tickets'>;
 
@@ -49,7 +49,7 @@ export function MaintenanceDetailClient({
   propertyName: string;
   urgencyRuleName: string | null;
 }) {
-  const router = useRouter();
+  const queryClient = useQueryClient();
 
   // Editable local state, seeded from the server-provided ticket.
   const [description, setDescription] = useState(ticket.description);
@@ -65,18 +65,29 @@ export function MaintenanceDetailClient({
     setReservationId(ticket.reservation_id ?? '');
   }, [ticket]);
 
+  const updateMutation = useMutation({
+    mutationFn: (patch: TablesUpdate<'maintenance_tickets'>) =>
+      updateMaintenanceTicket(ticket.id, patch as Record<string, unknown>),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['maintenance'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenance', ticket.id] });
+    },
+  });
+
   // Generic update helper — patches the row then refreshes server data.
   async function patchTicket(
     patch: TablesUpdate<'maintenance_tickets'>,
     successMessage?: string
   ) {
-    const res = await updateTicket(ticket.id, patch);
-    if (!res.ok) {
-      toast.error(`Failed to save: ${res.error}`);
+    try {
+      await updateMutation.mutateAsync(patch);
+    } catch (err) {
+      toast.error(
+        `Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`
+      );
       return false;
     }
     if (successMessage) toast.success(successMessage);
-    router.refresh();
     return true;
   }
 

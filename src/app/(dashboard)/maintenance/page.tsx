@@ -1,39 +1,48 @@
-import { createServerClient } from '@/backend/supabase';
+'use client';
+
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchMaintenance } from '@/lib/maintenance-api';
+import { fetchProperties } from '@/lib/properties-api';
 import { MaintenanceClient } from './maintenance-client';
 import type { Tables } from '@/backend/types';
-
-export const dynamic = 'force-dynamic';
 
 type Ticket = Tables<'maintenance_tickets'>;
 type Property = Tables<'properties'>;
 
-export default async function MaintenancePage() {
-  const supabase = createServerClient();
+export default function MaintenancePage() {
+  const { data: tickets = [], isLoading: ticketsLoading } = useQuery({
+    queryKey: ['maintenance'],
+    queryFn: fetchMaintenance,
+  });
+  const { data: properties = [], isLoading: propertiesLoading } = useQuery({
+    queryKey: ['properties'],
+    queryFn: fetchProperties,
+  });
 
-  const [
-    { data: ticketData },
-    { data: propData },
-    { data: roomData },
-  ] = await Promise.all([
-    supabase.from('maintenance_tickets').select('*'),
-    supabase.from('properties').select('*').order('name', { ascending: true }),
-    supabase.from('property_rooms').select('property_id, room_number'),
-  ]);
+  const roomsByProperty = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const p of properties) {
+      map[p.id] = [...p.rooms].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      );
+    }
+    return map;
+  }, [properties]);
 
-  const roomsByProperty: Record<string, string[]> = {};
-  for (const row of roomData ?? []) {
-    (roomsByProperty[row.property_id] ??= []).push(row.room_number);
-  }
-  for (const id of Object.keys(roomsByProperty)) {
-    roomsByProperty[id].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true })
+  if (ticketsLoading || propertiesLoading) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Maintenance</h1>
+        <p className="text-sm text-muted-foreground">Loading tickets…</p>
+      </div>
     );
   }
 
   return (
     <MaintenanceClient
-      tickets={(ticketData as Ticket[]) ?? []}
-      properties={(propData as Property[]) ?? []}
+      tickets={tickets as unknown as Ticket[]}
+      properties={properties as unknown as Property[]}
       roomsByProperty={roomsByProperty}
     />
   );

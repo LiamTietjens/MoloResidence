@@ -1,11 +1,16 @@
+'use client';
+
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { createServerClient } from '@/backend/supabase';
+import { useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import type { Tables } from '@/backend/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
+import { fetchMaintenanceTicket } from '@/lib/maintenance-api';
+import { fetchProperties } from '@/lib/properties-api';
+import { fetchUrgencyRules } from '@/lib/urgency-rules-api';
 import { MaintenanceDetailClient } from '../maintenance-detail-client';
-
-export const dynamic = 'force-dynamic';
 
 type Ticket = Tables<'maintenance_tickets'>;
 
@@ -24,51 +29,89 @@ function NotFound() {
   );
 }
 
-export default async function MaintenanceDetailPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ id?: string }>;
-}) {
-  const { id } = await searchParams;
+function MaintenanceDetailContent() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get('id') ?? '';
+
+  const {
+    data: ticket,
+    isLoading: ticketLoading,
+    isError: ticketError,
+  } = useQuery({
+    queryKey: ['maintenance', id],
+    queryFn: () => fetchMaintenanceTicket(id),
+    enabled: !!id,
+  });
+
+  const { data: properties = [] } = useQuery({
+    queryKey: ['properties'],
+    queryFn: fetchProperties,
+  });
+
+  const { data: urgencyRules = [] } = useQuery({
+    queryKey: ['urgency-rules'],
+    queryFn: fetchUrgencyRules,
+  });
 
   if (!id) {
     return <NotFound />;
   }
 
-  const supabase = createServerClient();
+  if (ticketLoading) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/maintenance" />}>
+          <ArrowLeft data-icon="inline-start" />
+          Back to Maintenance
+        </Button>
+        <p className="text-sm text-muted-foreground">Loading ticket…</p>
+      </div>
+    );
+  }
 
-  const { data, error } = await supabase
-    .from('maintenance_tickets')
-    .select('*')
-    .eq('id', id)
-    .single();
-
-  if (error || !data) {
+  if (ticketError || !ticket) {
     return <NotFound />;
   }
 
-  const ticket = data as Ticket;
+  const ticketRow = ticket as unknown as Ticket;
 
-  const [{ data: prop }, ruleResult] = await Promise.all([
-    supabase
-      .from('properties')
-      .select('name')
-      .eq('id', ticket.property_id)
-      .single(),
-    ticket.urgency_rule_id
-      ? supabase
-          .from('urgency_rules')
-          .select('name')
-          .eq('id', ticket.urgency_rule_id)
-          .single()
-      : Promise.resolve({ data: null }),
-  ]);
+  const propertyName =
+    properties.find((p) => p.id === ticketRow.property_id)?.name ?? 'Unknown';
+
+  const urgencyRuleName = ticketRow.urgency_rule_id
+    ? ((urgencyRules.find((r) => r.id === ticketRow.urgency_rule_id) as
+        | { name?: string }
+        | undefined)?.name ?? null)
+    : null;
 
   return (
     <MaintenanceDetailClient
-      ticket={ticket}
-      propertyName={prop?.name ?? 'Unknown'}
-      urgencyRuleName={(ruleResult.data as { name: string } | null)?.name ?? null}
+      ticket={ticketRow}
+      propertyName={propertyName}
+      urgencyRuleName={urgencyRuleName}
     />
+  );
+}
+
+export default function MaintenanceDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            nativeButton={false}
+            render={<Link href="/maintenance" />}
+          >
+            <ArrowLeft data-icon="inline-start" />
+            Back to Maintenance
+          </Button>
+          <p className="text-sm text-muted-foreground">Loading ticket…</p>
+        </div>
+      }
+    >
+      <MaintenanceDetailContent />
+    </Suspense>
   );
 }
