@@ -3,6 +3,11 @@ import { cors } from 'hono/cors';
 import { requireAuth } from './middleware/auth.ts';
 import { buildAuthRoutes } from './routes/auth.ts';
 import { buildPropertyRoutes } from './routes/properties.ts';
+import { buildMaintenanceRoutes } from './routes/maintenance.ts';
+import { buildCallRoutes } from './routes/calls.ts';
+import { buildUrgencyRuleRoutes } from './routes/urgency-rules.ts';
+import { buildMetricsRoutes } from './routes/metrics.ts';
+import { buildMeRoutes } from './routes/me.ts';
 import type { AppEnv } from './lib/types.ts';
 
 const app = new Hono<AppEnv>().basePath('/api');
@@ -24,6 +29,26 @@ app.route('/auth', buildAuthRoutes());
 app.use('/properties/*', requireAuth);
 app.use('/properties', requireAuth);
 app.route('/properties', buildPropertyRoutes());
+
+app.use('/maintenance', requireAuth);
+app.use('/maintenance/*', requireAuth);
+app.route('/maintenance', buildMaintenanceRoutes());
+
+app.use('/calls', requireAuth);
+app.use('/calls/*', requireAuth);
+app.route('/calls', buildCallRoutes());
+
+app.use('/urgency-rules', requireAuth);
+app.use('/urgency-rules/*', requireAuth);
+app.route('/urgency-rules', buildUrgencyRuleRoutes());
+
+app.use('/metrics', requireAuth);
+app.use('/metrics/*', requireAuth);
+app.route('/metrics', buildMetricsRoutes());
+
+app.use('/me', requireAuth);
+app.use('/me/*', requireAuth);
+app.route('/me', buildMeRoutes());
 
 Deno.serve(app.fetch);
 
