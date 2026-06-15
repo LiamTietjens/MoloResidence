@@ -9,7 +9,6 @@ import {
   AlertTriangle,
   Wrench,
   Phone,
-  Link2,
   Users,
 } from "lucide-react";
 
@@ -32,7 +31,6 @@ const navGroups = [
     items: [
       { title: "Maintenance", href: "/maintenance", icon: Wrench },
       { title: "Calls", href: "/calls", icon: Phone },
-      { title: "Booking Links", href: "/booking-links", icon: Link2 },
     ],
   },
   {

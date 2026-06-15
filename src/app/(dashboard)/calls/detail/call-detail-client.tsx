@@ -260,18 +260,16 @@ export function CallDetail({
                     </Link>
                   ))}
                   {bookings.map((b) => (
-                    <Link
+                    <div
                       key={b.id}
-                      href="/booking-links"
-                      className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+                      className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
                     >
                       <LinkIcon className="size-4 text-muted-foreground" />
                       <span className="font-medium">{b.guest_name}</span>
                       <span className="text-xs text-muted-foreground">
                         {b.converted ? 'Converted' : 'Sent'}
                       </span>
-                      <ExternalLink className="ml-auto size-3.5 text-muted-foreground" />
-                    </Link>
+                    </div>
                   ))}
                 </>
               )}
