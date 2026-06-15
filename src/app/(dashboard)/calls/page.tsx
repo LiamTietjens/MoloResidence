@@ -1,29 +1,35 @@
-import { createServerClient } from '@/backend/supabase';
-import type { Tables } from '@/backend/types';
-import { CallsList } from './calls-client';
+'use client';
 
-export const dynamic = 'force-dynamic';
+import { useQuery } from '@tanstack/react-query';
+import type { Tables } from '@/backend/types';
+import { fetchCalls } from '@/lib/calls-api';
+import { fetchProperties } from '@/lib/properties-api';
+import { CallsList } from './calls-client';
 
 type CallLog = Tables<'call_logs'>;
 type Property = Pick<Tables<'properties'>, 'id' | 'name'>;
 
-export default async function CallsPage() {
-  const supabase = createServerClient();
-
-  const [{ data: callsData }, { data: propertiesData }] = await Promise.all([
-    supabase.from('call_logs').select('*').order('started_at', {
-      ascending: false,
-    }),
-    supabase.from('properties').select('id, name').order('name'),
-  ]);
-
-  const calls = (callsData ?? []) as CallLog[];
-  const properties = (propertiesData ?? []) as Property[];
+export default function CallsPage() {
+  const { data: calls = [], isLoading: callsLoading } = useQuery({
+    queryKey: ['calls'],
+    queryFn: fetchCalls,
+  });
+  const { data: properties = [], isLoading: propertiesLoading } = useQuery({
+    queryKey: ['properties'],
+    queryFn: fetchProperties,
+  });
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
-      <CallsList calls={calls} properties={properties} />
+      {callsLoading || propertiesLoading ? (
+        <p className="text-sm text-muted-foreground">Loading calls…</p>
+      ) : (
+        <CallsList
+          calls={calls as unknown as CallLog[]}
+          properties={properties as unknown as Property[]}
+        />
+      )}
     </div>
   );
 }
