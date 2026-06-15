@@ -1115,6 +1115,90 @@ git commit -m "feat(web): enable static export, remove server middleware"
 
 ---
 
+## Task 12b: Client auth shell — mount providers + convert dashboard layout
+
+**Gap discovered during execution:** `AuthProvider` (`src/lib/auth-context.tsx`) was never mounted (dead code), and `(dashboard)/layout.tsx` was an async **Server Component** using `getSession()` + `redirect()` — which cannot run on a static host. With `middleware.ts` deleted (Task 12), the client auth context becomes the *only* route guard, so it must actually be mounted and the layout must be client-side.
+
+Also note the **all-or-nothing static build**: `output: 'export'` builds the entire route tree, and the other ~10 dashboard pages are still `force-dynamic` Server Components. A clean `next build` (and thus the Render deploy, Tasks 15–17) is only possible after *all* pages are converted in later slices. For Slice 1, verification is via `next dev` (which still runs a server, so unconverted pages keep working) against the deployed edge function.
+
+**Files:**
+- Create: `src/app/providers.tsx`
+- Modify: `src/app/layout.tsx` (wrap children in `<Providers>`)
+- Modify: `src/app/(dashboard)/layout.tsx` (Server Component → client guard)
+- Modify: `src/components/user-menu.tsx` (logout + displayName via client context, not server action/prop)
+
+- [ ] **Step 1: Create the Providers component**
+
+`src/app/providers.tsx`:
+```tsx
+'use client';
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
+import { AuthProvider } from '@/lib/auth-context';
+
+export function Providers({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>{children}</AuthProvider>
+    </QueryClientProvider>
+  );
+}
+```
+
+- [ ] **Step 2: Mount providers in the root layout**
+
+In `src/app/layout.tsx`, import `{ Providers }` and wrap `{children}` (keep `<Toaster>` inside or after — it can stay in the body). The root layout stays a Server Component; `<Providers>` is the client boundary.
+
+- [ ] **Step 3: Convert the dashboard layout to a client guard**
+
+Rewrite `src/app/(dashboard)/layout.tsx` as a client component that no longer imports `getSession`/`redirect`:
+```tsx
+'use client';
+
+import { useAuth } from '@/lib/auth-context';
+import { AppSidebar } from '@/components/app-sidebar';
+import { UserMenu } from '@/components/user-menu';
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  // AuthProvider's effect redirects to /login when there's no user; render nothing meanwhile.
+  if (loading || !user) return null;
+
+  return (
+    <div className="flex min-h-screen">
+      <AppSidebar />
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="flex h-14 shrink-0 items-center border-b px-6">
+          <div className="flex-1" />
+          <UserMenu displayName={user.displayName} />
+        </header>
+        <main className="flex-1 p-6 overflow-auto">{children}</main>
+      </div>
+    </div>
+  );
+}
+```
+(A client layout can still render the as-yet-unconverted Server Component child pages via `children` — composition works.)
+
+- [ ] **Step 4: Fix UserMenu logout/displayName**
+
+Read `src/components/user-menu.tsx`. If it calls the server `logoutAction`, switch it to `const { logout } = useAuth();` and call `logout()` (client). Keep accepting `displayName` as a prop (now passed from `useAuth().user.displayName`). Ensure it's a client component (`'use client'`).
+
+- [ ] **Step 5: Verify**
+
+Run `npx tsc --noEmit` → clean. Run `npm run build` and RECORD the output: it is EXPECTED to fail on unconverted `force-dynamic` pages (e.g. knowledge-bases, maintenance, calls, booking-links, settings/*). Confirm the failure is NOT in `/login`, `/` provider wiring, or the dashboard layout — i.e. our converted surface compiles; only the not-yet-migrated pages block the export. List the blocking pages (input to the next slice).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/app/providers.tsx src/app/layout.tsx "src/app/(dashboard)/layout.tsx" src/components/user-menu.tsx
+git commit -m "feat(web): mount auth+query providers, client-side dashboard guard"
+```
+
+---
+
 ## Task 13: Properties data module (TDD)
 
 **Files:**
