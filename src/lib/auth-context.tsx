@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { setToken, clearToken } from '@/lib/api-client';
 
 interface User {
   id: string;
@@ -12,7 +13,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (user: User) => void;
+  login: (user: User, token: string) => void;
   logout: () => void;
 }
 
@@ -51,14 +52,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [loading, user, pathname, router]);
 
-  const login = useCallback((u: User) => {
+  const login = useCallback((u: User, token: string) => {
     localStorage.setItem('molo_session', JSON.stringify(u));
+    setToken(token);
     setUser(u);
     router.replace('/');
   }, [router]);
 
   const logout = useCallback(() => {
     localStorage.removeItem('molo_session');
+    clearToken();
     setUser(null);
     router.replace('/login');
   }, [router]);
