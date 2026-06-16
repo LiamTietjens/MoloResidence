@@ -1,13 +1,12 @@
 import type { NextConfig } from "next";
 
-// Migration to a static frontend + Supabase edge `api` is IN PROGRESS.
-// `output: 'export'` is deliberately NOT set yet: it forces the whole route tree
-// to be statically renderable, but ~10 pages are still force-dynamic Server
-// Components mid-migration. The app runs as a normal Next server until every page
-// is converted; the final slice flips `output: 'export'` back on for the
-// Render static_site deploy. `images.unoptimized` is kept (export needs it later).
+// Static-edge migration COMPLETE. Every page fetches from the Supabase edge
+// function `api` via TanStack Query, so the whole route tree is statically
+// renderable. `output: 'export'` emits a static `out/` bundle for the Render
+// static_site deploy; `images.unoptimized` is required by static export.
 // See docs/superpowers/specs/2026-06-12-static-edge-migration-design.md
 const nextConfig: NextConfig = {
+  output: "export",
   images: { unoptimized: true },
 };
 
