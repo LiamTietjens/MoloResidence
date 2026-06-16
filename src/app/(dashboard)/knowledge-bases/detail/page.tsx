@@ -4,15 +4,14 @@ import { useEffect, useState, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  getKbDetailData,
-  updateKbName,
-  updateKbContent,
-  setDefaultGeneralKb,
-  saveRoomAssignments as saveRoomAssignmentsAction,
-  removeRoomFromKb,
-  deleteKnowledgeBase,
-} from '@/backend/knowledge-bases';
+  fetchKbDetail,
+  updateKb,
+  saveKbRooms,
+  removeKbRoom,
+  deleteKb,
+} from '@/lib/knowledge-bases-api';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -89,14 +88,23 @@ interface ReassignConfirmation {
 
 function DetailContent() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const id = searchParams.get('id');
 
+  const {
+    data: detail,
+    isLoading: loading,
+    isError,
+  } = useQuery({
+    queryKey: ['kb', id],
+    queryFn: () => fetchKbDetail(id!),
+    enabled: !!id,
+  });
+
   const [kb, setKb] = useState<KnowledgeBase | null>(null);
   const [name, setName] = useState('');
-  const [isGeneral, setIsGeneral] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const isGeneral = !!kb?.is_default_general;
 
   // Room assignment state
   const [propertyRooms, setPropertyRooms] = useState<PropertyRooms[]>([]);
@@ -146,88 +154,77 @@ function DetailContent() {
     },
   });
 
-  // Load data
+  // Hydrate local state from the query result
   useEffect(() => {
-    if (!id) {
-      setNotFound(true);
-      setLoading(false);
-      return;
-    }
+    if (!detail) return;
 
-    async function fetchData() {
-      const {
-        kb: kbData,
-        properties,
-        propRooms: propRoomData,
-        allKbRooms: allKbRoomData,
-      } = await getKbDetailData(id!);
+    const {
+      kb: kbData,
+      properties,
+      propRooms: propRoomData,
+      allKbRooms: allKbRoomData,
+    } = detail;
 
-      if (!kbData) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
+    if (!kbData) return;
 
-      setKb(kbData as KnowledgeBase);
-      setName(kbData.name);
-      setIsGeneral(!!kbData.is_default_general);
+    setKb(kbData as KnowledgeBase);
+    setName(kbData.name);
 
-      // Set editor content from markdown
-      if (editor && kbData.content) {
-        const html = await marked(kbData.content);
+    // Set editor content from markdown
+    if (editor && kbData.content) {
+      (async () => {
+        const html = await marked(kbData.content || '');
         editor.commands.setContent(html);
-      }
-
-      // Build all KB assignments (for showing which rooms are assigned to which KBs)
-      const assignments: RoomAssignment[] = (allKbRoomData || []).map((r: Record<string, unknown>) => {
-        const kbJoin = r.knowledge_bases as { id: string; name: string; property_id: string } | null;
-        return {
-          room_number: r.room_number as string,
-          property_id: kbJoin?.property_id || '',
-          knowledge_base_id: r.knowledge_base_id as string,
-          kb_name: kbJoin?.name || 'Unknown',
-        };
-      });
-      setAllAssignments(assignments);
-
-      // Group rooms by property from property_rooms (stable source)
-      const roomsByProperty = new Map<string, Set<string>>();
-      for (const row of propRoomData || []) {
-        if (!roomsByProperty.has(row.property_id)) {
-          roomsByProperty.set(row.property_id, new Set());
-        }
-        roomsByProperty.get(row.property_id)!.add(row.room_number);
-      }
-
-      // Build property rooms list
-      const propRooms: PropertyRooms[] = (properties || []).map((p: Property) => {
-        const rooms = roomsByProperty.get(p.id) || new Set<string>();
-        const sortedRooms = [...rooms].sort((a, b) =>
-          a.localeCompare(b, undefined, { numeric: true })
-        );
-        return { property: p, rooms: sortedRooms };
-      });
-      setPropertyRooms(propRooms);
-
-      // Set initial selected rooms for THIS KB
-      const thisKbRooms = assignments.filter((a) => a.knowledge_base_id === id);
-      const selected = new Set<string>(
-        thisKbRooms.map((a) => `${a.property_id}:${a.room_number}`)
-      );
-      setSelectedRooms(selected);
-
-      // Auto-expand properties that have selected rooms
-      const propsWithSelection = new Set<string>();
-      for (const key of selected) {
-        propsWithSelection.add(key.split(':')[0]);
-      }
-      setExpandedProperties(propsWithSelection);
-
-      setLoading(false);
+      })();
     }
 
-    fetchData();
-  }, [id, editor]);
+    // Build all KB assignments (for showing which rooms are assigned to which KBs)
+    const assignments: RoomAssignment[] = (
+      (allKbRoomData as Record<string, unknown>[]) || []
+    ).map((r) => {
+      const kbJoin = r.knowledge_bases as { id: string; name: string; property_id: string } | null;
+      return {
+        room_number: r.room_number as string,
+        property_id: kbJoin?.property_id || '',
+        knowledge_base_id: r.knowledge_base_id as string,
+        kb_name: kbJoin?.name || 'Unknown',
+      };
+    });
+    setAllAssignments(assignments);
+
+    // Group rooms by property from property_rooms (stable source)
+    const roomsByProperty = new Map<string, Set<string>>();
+    for (const row of propRoomData || []) {
+      if (!roomsByProperty.has(row.property_id)) {
+        roomsByProperty.set(row.property_id, new Set());
+      }
+      roomsByProperty.get(row.property_id)!.add(row.room_number);
+    }
+
+    // Build property rooms list
+    const propRooms: PropertyRooms[] = (properties || []).map((p: Property) => {
+      const rooms = roomsByProperty.get(p.id) || new Set<string>();
+      const sortedRooms = [...rooms].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      );
+      return { property: p, rooms: sortedRooms };
+    });
+    setPropertyRooms(propRooms);
+
+    // Set initial selected rooms for THIS KB
+    const thisKbRooms = assignments.filter((a) => a.knowledge_base_id === id);
+    const selected = new Set<string>(
+      thisKbRooms.map((a) => `${a.property_id}:${a.room_number}`)
+    );
+    setSelectedRooms(selected);
+
+    // Auto-expand properties that have selected rooms
+    const propsWithSelection = new Set<string>();
+    for (const key of selected) {
+      propsWithSelection.add(key.split(':')[0]);
+    }
+    setExpandedProperties(propsWithSelection);
+  }, [detail, editor, id]);
 
   // Set editor content once editor is ready and we have data
   useEffect(() => {
@@ -244,47 +241,35 @@ function DetailContent() {
     async (newName: string) => {
       if (!id || !newName.trim()) return;
       setSaveStatus('saving');
-      const res = await updateKbName(id, newName);
-      if (!res.ok) {
+      try {
+        await updateKb(id, { name: newName.trim() });
+        queryClient.invalidateQueries({ queryKey: ['kbs'] });
+        queryClient.invalidateQueries({ queryKey: ['kb-general'] });
+      } catch {
         toast.error('Failed to save name');
       }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     },
-    [id]
+    [id, queryClient]
   );
-
-  // Toggle whether this KB is THE general knowledge base (only one allowed).
-  const toggleGeneral = useCallback(async () => {
-    if (!id) return;
-    const next = !isGeneral;
-    setIsGeneral(next); // optimistic
-    const res = await setDefaultGeneralKb(id, next);
-    if (!res.ok) {
-      setIsGeneral(!next); // revert
-      toast.error(res.error || 'Failed to update general knowledge base');
-      return;
-    }
-    toast.success(
-      next
-        ? 'Set as the general knowledge base'
-        : 'No longer the general knowledge base'
-    );
-  }, [id, isGeneral]);
 
   // Save content (markdown)
   const saveContent = useCallback(
     async (newContent: string) => {
       if (!id) return;
       setSaveStatus('saving');
-      const res = await updateKbContent(id, newContent);
-      if (!res.ok) {
+      try {
+        await updateKb(id, { content: newContent });
+        queryClient.invalidateQueries({ queryKey: ['kbs'] });
+        queryClient.invalidateQueries({ queryKey: ['kb-general'] });
+      } catch {
         toast.error('Failed to save content');
       }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     },
-    [id]
+    [id, queryClient]
   );
 
   // Save room assignments
@@ -294,23 +279,25 @@ function DetailContent() {
       setSaveStatus('saving');
 
       const roomNumbers = [...rooms].map((key) => key.split(':')[1]);
-      const res = await saveRoomAssignmentsAction(id, roomNumbers);
-      if (!res.ok) {
+      try {
+        await saveKbRooms(id, roomNumbers);
+      } catch {
         toast.error('Failed to save room assignments');
         setSaveStatus('idle');
         return;
       }
 
+      queryClient.invalidateQueries({ queryKey: ['kbs'] });
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     },
-    [id]
+    [id, queryClient]
   );
 
   // Remove room from another KB
   const removeFromOtherKb = useCallback(
     async (otherKbId: string, roomNumber: string) => {
-      await removeRoomFromKb(otherKbId, roomNumber);
+      await removeKbRoom(otherKbId, roomNumber, otherKbId);
     },
     []
   );
@@ -499,12 +486,15 @@ function DetailContent() {
     if (!id) return;
     setDeleteDialogOpen(false);
 
-    const res = await deleteKnowledgeBase(id);
-    if (!res.ok) {
-      toast.error(res.error ?? 'Failed to delete');
+    try {
+      await deleteKb(id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete');
       return;
     }
 
+    queryClient.invalidateQueries({ queryKey: ['kbs'] });
+    queryClient.invalidateQueries({ queryKey: ['kb-general'] });
     toast.success('Knowledge base deleted');
     router.push('/knowledge-bases');
   }
@@ -527,7 +517,7 @@ function DetailContent() {
     );
   }
 
-  if (notFound || !kb) {
+  if (!id || isError || (detail && !detail.kb) || !kb) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold tracking-tight">Not Found</h1>
@@ -560,24 +550,6 @@ function DetailContent() {
             />
           </div>
           <div className="flex items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant={isGeneral ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={toggleGeneral}
-                  />
-                }
-              >
-                {isGeneral ? '★ General KB' : 'Set as general'}
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                The general knowledge base is preloaded on every call and used when a
-                caller isn&apos;t identified yet or asks a general question. Only one KB
-                can be the general one.
-              </TooltipContent>
-            </Tooltip>
             <SaveIndicator status={saveStatus} />
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <DialogTrigger
@@ -627,7 +599,20 @@ function DetailContent() {
             </p>
           </div>
 
-          {/* Right: Property & Room Assignment */}
+          {/* Right: Property & Room Assignment — or general note */}
+          {isGeneral ? (
+            <div className="w-80 shrink-0 flex flex-col min-h-0">
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <h2 className="text-sm font-semibold tracking-tight">
+                  General Knowledge Base
+                </h2>
+                <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                  Loaded on every call — used when a caller isn&apos;t identified yet
+                  or asks a general question. Not tied to any room.
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="w-80 shrink-0 flex flex-col min-h-0">
             <div className="mb-3 shrink-0">
               <h2 className="text-sm font-semibold tracking-tight">Assign to Properties & Rooms</h2>
@@ -703,6 +688,7 @@ function DetailContent() {
               )}
             </div>
           </div>
+          )}
         </div>
 
         {/* Reassignment confirmation dialog */}

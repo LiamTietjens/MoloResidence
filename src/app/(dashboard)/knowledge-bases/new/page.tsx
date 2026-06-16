@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { createKnowledgeBase } from '@/backend/knowledge-bases';
+import { createKnowledgeBase } from '@/lib/knowledge-bases-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,15 +23,14 @@ export default function NewKnowledgeBasePage() {
 
     setCreating(true);
 
-    const res = await createKnowledgeBase(name);
-    if (!res.ok || !res.id) {
-      toast.error(res.error ?? 'Failed to create knowledge base');
+    try {
+      const res = await createKnowledgeBase(name);
+      toast.success('Knowledge base created');
+      router.push(`/knowledge-bases/detail?id=${res.id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create knowledge base');
       setCreating(false);
-      return;
     }
-
-    toast.success('Knowledge base created');
-    router.push(`/knowledge-bases/detail?id=${res.id}`);
   }
 
   return (
