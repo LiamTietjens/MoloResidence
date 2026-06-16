@@ -1,5 +1,8 @@
+'use client';
+
 import Link from 'next/link';
-import { createServerClient } from '@/backend/supabase';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchMetrics } from '@/lib/metrics-api';
 import {
   Card,
   CardContent,
@@ -18,23 +21,8 @@ import {
 import type { Tables } from '@/backend/types';
 import { RefreshButton } from './refresh-button';
 
-export const dynamic = 'force-dynamic';
-
 type CallLog = Tables<'call_logs'>;
 type Ticket = Tables<'maintenance_tickets'>;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const URGENCY_ORDER: Record<string, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
-function pct(n: number, d: number): string {
-  if (d === 0) return '0%';
-  return `${Math.round((n / d) * 100)}%`;
-}
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -42,103 +30,36 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export default async function DashboardPage() {
-  const supabase = createServerClient();
+export default function DashboardPage() {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['metrics'],
+    queryFn: fetchMetrics,
+  });
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayIso = todayStart.toISOString();
-  const sevenDaysAgoIso = new Date(Date.now() - 7 * DAY_MS).toISOString();
+  if (isLoading || !data) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+            <p className="mt-1 text-muted-foreground">
+              Overview of your Molo Residence operations.
+            </p>
+          </div>
+          <RefreshButton
+            onClick={() =>
+              queryClient.invalidateQueries({ queryKey: ['metrics'] })
+            }
+          />
+        </div>
+        <p className="text-sm text-muted-foreground">Loading metrics…</p>
+      </div>
+    );
+  }
 
-  const [
-    callsTodayRes,
-    openTicketsRes,
-    criticalRes,
-    highRes,
-    bookingsRes,
-    propertiesRes,
-    recentCallsRes,
-    topTicketsRes,
-  ] = await Promise.all([
-    // Today's calls — need rows to sum duration + cost.
-    supabase
-      .from('call_logs')
-      .select('duration_seconds, cost_usd')
-      .gte('started_at', todayIso),
-    supabase
-      .from('maintenance_tickets')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open'),
-    supabase
-      .from('maintenance_tickets')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open')
-      .eq('urgency', 'critical'),
-    supabase
-      .from('maintenance_tickets')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open')
-      .eq('urgency', 'high'),
-    // Booking links in last 7d — need rows for CTR / conversion.
-    supabase
-      .from('booking_links')
-      .select('clicked_at, converted')
-      .gte('sent_at', sevenDaysAgoIso),
-    supabase
-      .from('properties')
-      .select('id', { count: 'exact', head: true }),
-    supabase
-      .from('call_logs')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(10),
-    supabase
-      .from('maintenance_tickets')
-      .select('*')
-      .in('status', ['open', 'in_progress'])
-      .in('urgency', ['critical', 'high'])
-      .order('created_at', { ascending: false }),
-  ]);
-
-  const callsTodayRows = callsTodayRes.data ?? [];
-  const durationTodaySeconds = callsTodayRows.reduce(
-    (sum, c) => sum + (c.duration_seconds ?? 0),
-    0
-  );
-  const costTodayUsd = callsTodayRows.reduce(
-    (sum, c) => sum + (c.cost_usd ?? 0),
-    0
-  );
-
-  const bookings = bookingsRes.data ?? [];
-  const clicked = bookings.filter((b) => b.clicked_at !== null).length;
-  const convertedCount = bookings.filter((b) => b.converted).length;
-
-  // Order critical/high tickets by urgency, then most recent.
-  const topTickets: Ticket[] = (topTicketsRes.data ?? [])
-    .slice()
-    .sort((a, b) => {
-      const u =
-        (URGENCY_ORDER[a.urgency] ?? 99) - (URGENCY_ORDER[b.urgency] ?? 99);
-      if (u !== 0) return u;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    })
-    .slice(0, 5);
-
-  const data = {
-    callsToday: callsTodayRows.length,
-    durationTodaySeconds,
-    costTodayUsd,
-    openTickets: openTicketsRes.count ?? 0,
-    criticalTickets: criticalRes.count ?? 0,
-    highTickets: highRes.count ?? 0,
-    bookingLinks7d: bookings.length,
-    bookingCtr: pct(clicked, bookings.length),
-    bookingConv: pct(convertedCount, bookings.length),
-    activeProperties: propertiesRes.count ?? 0,
-    recentCalls: (recentCallsRes.data ?? []) as CallLog[],
-    topTickets,
-  };
+  const recentCalls = data.recentCalls as CallLog[];
+  const topTickets = data.topTickets as Ticket[];
 
   return (
     <div className="space-y-6">
@@ -149,7 +70,11 @@ export default async function DashboardPage() {
             Overview of your Molo Residence operations.
           </p>
         </div>
-        <RefreshButton />
+        <RefreshButton
+          onClick={() =>
+            queryClient.invalidateQueries({ queryKey: ['metrics'] })
+          }
+        />
       </div>
 
       {/* Metric cards */}
@@ -188,13 +113,13 @@ export default async function DashboardPage() {
             <CardDescription>The 10 most recent calls.</CardDescription>
           </CardHeader>
           <CardContent>
-            {data.recentCalls.length === 0 ? (
+            {recentCalls.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
                 No calls yet.
               </p>
             ) : (
               <div className="divide-y">
-                {data.recentCalls.map((call) => (
+                {recentCalls.map((call) => (
                   <Link
                     key={call.id}
                     href={`/calls/detail?id=${call.id}`}
@@ -229,13 +154,13 @@ export default async function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {data.topTickets.length === 0 ? (
+            {topTickets.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
                 No critical or high-urgency tickets open.
               </p>
             ) : (
               <div className="divide-y">
-                {data.topTickets.map((ticket) => (
+                {topTickets.map((ticket) => (
                   <Link
                     key={ticket.id}
                     href={`/maintenance/detail?id=${ticket.id}`}
