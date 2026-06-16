@@ -1,19 +1,54 @@
+'use client';
+
 import Link from 'next/link';
-import { createServerClient } from '@/backend/supabase';
+import { useRouter } from 'next/navigation';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { PlusIcon } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { RelativeTime } from '@/components/shared/relative-time';
+import { PlusIcon, Sparkles } from 'lucide-react';
+import {
+  fetchKnowledgeBases,
+  fetchGeneralKb,
+  createKnowledgeBase,
+} from '@/lib/knowledge-bases-api';
 import { KbListClient, type KbListItem } from './kb-list-client';
 
-export const dynamic = 'force-dynamic';
+export default function KnowledgeBasesPage() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
-export default async function KnowledgeBasesPage() {
-  const supabase = createServerClient();
-  const { data } = await supabase
-    .from('knowledge_bases')
-    .select('id, name, content, updated_at, is_default_general, knowledge_base_rooms(room_number)')
-    .order('updated_at', { ascending: false });
+  const { data: knowledgeBases = [], isLoading } = useQuery({
+    queryKey: ['kbs'],
+    queryFn: fetchKnowledgeBases,
+  });
 
-  const knowledgeBases = (data ?? []) as KbListItem[];
+  const { data: generalKb, isLoading: generalLoading } = useQuery({
+    queryKey: ['kb-general'],
+    queryFn: fetchGeneralKb,
+  });
+
+  const createGeneral = useMutation({
+    mutationFn: () =>
+      createKnowledgeBase('General Knowledge Base', { general: true }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['kb-general'] });
+      queryClient.invalidateQueries({ queryKey: ['kbs'] });
+      toast.success('General knowledge base created');
+      router.push(`/knowledge-bases/detail?id=${res.id}`);
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to create general knowledge base',
+      );
+    },
+  });
+
+  const generalId = generalKb?.id ?? null;
+  const propertyKbs = (knowledgeBases as KbListItem[]).filter(
+    (kb) => !kb.is_default_general && kb.id !== generalId,
+  );
 
   return (
     <div className="space-y-6">
@@ -30,7 +65,73 @@ export default async function KnowledgeBasesPage() {
         </Button>
       </div>
 
-      <KbListClient knowledgeBases={knowledgeBases} />
+      {/* General Knowledge Base */}
+      <Card>
+        <CardContent className="flex items-center justify-between gap-4 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-muted-foreground shrink-0" />
+              <h2 className="text-sm font-semibold tracking-tight">
+                General Knowledge Base
+              </h2>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Loaded on every call — used when a caller isn&apos;t identified yet or
+              asks a general question.
+            </p>
+            {!generalLoading && generalKb && (
+              <p className="mt-2 text-sm">
+                <span className="font-medium">{generalKb.name}</span>{' '}
+                <span className="text-muted-foreground">
+                  · updated <RelativeTime date={generalKb.updated_at} />
+                </span>
+              </p>
+            )}
+            {!generalLoading && !generalKb && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No general knowledge base set.
+              </p>
+            )}
+          </div>
+
+          <div className="shrink-0">
+            {generalLoading ? null : generalKb ? (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={
+                  <Link href={`/knowledge-bases/detail?id=${generalKb.id}`} />
+                }
+              >
+                Edit
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => createGeneral.mutate()}
+                disabled={createGeneral.isPending}
+              >
+                {createGeneral.isPending
+                  ? 'Creating…'
+                  : 'Create general knowledge base'}
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Property & Room Knowledge Bases */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold tracking-tight">
+          Property &amp; Room Knowledge Bases
+        </h2>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading knowledge bases…</p>
+        ) : (
+          <KbListClient knowledgeBases={propertyKbs} />
+        )}
+      </div>
     </div>
   );
 }
