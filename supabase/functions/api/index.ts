@@ -13,12 +13,21 @@ import type { AppEnv } from './lib/types.ts';
 
 const app = new Hono<AppEnv>().basePath('/api');
 
-// CORS: allow the static frontend origin(s). ALLOWED_ORIGINS is a comma-separated
-// list set via `supabase secrets set`; falls back to localhost for dev.
-const origins = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:3000')
-  .split(',').map((s) => s.trim());
+// CORS: allow the static frontend origin(s). Auth is a Bearer JWT in the
+// Authorization header (no cookies), so origin allow-listing is for hygiene, not
+// the security boundary. We allow: localhost dev, any explicit ALLOWED_ORIGINS
+// (comma-separated secret), and any *.onrender.com host (the Render static_site,
+// incl. PR-preview subdomains) — so the deployed dashboard works without a secret.
+const explicitOrigins = (Deno.env.get('ALLOWED_ORIGINS') ?? '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 app.use('*', cors({
-  origin: origins,
+  origin: (origin) => {
+    if (!origin) return 'http://localhost:3000';
+    if (origin === 'http://localhost:3000') return origin;
+    if (explicitOrigins.includes(origin)) return origin;
+    if (origin.endsWith('.onrender.com')) return origin;
+    return null;
+  },
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
