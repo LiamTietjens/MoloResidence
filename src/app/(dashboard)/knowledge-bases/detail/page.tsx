@@ -211,11 +211,22 @@ function DetailContent() {
     });
     setPropertyRooms(propRooms);
 
-    // Set initial selected rooms for THIS KB
-    const thisKbRooms = assignments.filter((a) => a.knowledge_base_id === id);
-    const selected = new Set<string>(
-      thisKbRooms.map((a) => `${a.property_id}:${a.room_number}`)
+    // Set initial selected rooms for THIS KB. Assignments are per room_number
+    // (knowledge_base_rooms has no property_id), and this KB's own property_id may
+    // be null (exception/general KBs), so map the assigned room_numbers onto the
+    // real property-room rows — that way the tree checkboxes (keyed by the room's
+    // actual property) match.
+    const thisKbRoomNumbers = new Set(
+      assignments
+        .filter((a) => a.knowledge_base_id === id)
+        .map((a) => a.room_number)
     );
+    const selected = new Set<string>();
+    for (const row of propRoomData || []) {
+      if (thisKbRoomNumbers.has(row.room_number)) {
+        selected.add(`${row.property_id}:${row.room_number}`);
+      }
+    }
     setSelectedRooms(selected);
 
     // Auto-expand properties that have selected rooms
@@ -331,7 +342,6 @@ function DetailContent() {
 
     const otherAssignment = allAssignments.find(
       (a) =>
-        a.property_id === propertyId &&
         a.room_number === roomNumber &&
         a.knowledge_base_id !== id
     );
@@ -360,7 +370,6 @@ function DetailContent() {
 
     const otherAssignment = allAssignments.find(
       (a) =>
-        a.property_id === propertyId &&
         a.room_number === roomNumber &&
         a.knowledge_base_id !== id
     );
@@ -399,7 +408,6 @@ function DetailContent() {
       if (selectedRooms.has(`${propertyId}:${room}`)) continue;
       const otherAssignment = allAssignments.find(
         (a) =>
-          a.property_id === propertyId &&
           a.room_number === room &&
           a.knowledge_base_id !== id
       );
@@ -437,7 +445,6 @@ function DetailContent() {
     for (const affected of affectedRooms || []) {
       const otherAssignment = allAssignments.find(
         (a) =>
-          a.property_id === propertyId &&
           a.room_number === affected.room &&
           a.knowledge_base_id !== id
       );
@@ -450,8 +457,7 @@ function DetailContent() {
     setAllAssignments((prev) =>
       prev.filter(
         (a) =>
-          !(a.property_id === propertyId &&
-            affectedRoomNumbers.has(a.room_number) &&
+          !(affectedRoomNumbers.has(a.room_number) &&
             a.knowledge_base_id !== id)
       )
     );
@@ -476,7 +482,6 @@ function DetailContent() {
   const getOtherKbAssignment = (propertyId: string, roomNumber: string): string | null => {
     const assignment = allAssignments.find(
       (a) =>
-        a.property_id === propertyId &&
         a.room_number === roomNumber &&
         a.knowledge_base_id !== id
     );
