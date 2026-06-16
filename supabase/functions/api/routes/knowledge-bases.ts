@@ -152,7 +152,16 @@ export function buildKnowledgeBaseRoutes(makeClient: ClientFactory = serviceClie
       return c.json({ error: 'roomNumbers (array) is required.' }, 400);
     }
     const id = c.req.param('id');
-    const roomNumbers = body.roomNumbers as string[];
+    // Dedupe + trim + drop empties: the UI keys rooms by property:room but the
+    // table is unique on (knowledge_base_id, room_number), so the same room_number
+    // under two properties would otherwise insert duplicates and violate the constraint.
+    const roomNumbers = [
+      ...new Set(
+        (body.roomNumbers as unknown[])
+          .filter((r): r is string => typeof r === 'string' && r.trim() !== '')
+          .map((r) => r.trim()),
+      ),
+    ];
     const sb = makeClient();
     await sb.from('knowledge_base_rooms').delete().eq('knowledge_base_id', id);
     if (roomNumbers.length > 0) {

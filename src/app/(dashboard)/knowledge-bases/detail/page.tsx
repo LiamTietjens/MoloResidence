@@ -278,7 +278,9 @@ function DetailContent() {
       if (!id) return;
       setSaveStatus('saving');
 
-      const roomNumbers = [...rooms].map((key) => key.split(':')[1]);
+      // The same room_number can appear under multiple properties (keys are
+      // property:room), but assignments are unique per (kb, room_number) — dedupe.
+      const roomNumbers = [...new Set([...rooms].map((key) => key.split(':')[1]))];
       try {
         await saveKbRooms(id, roomNumbers);
       } catch {
