@@ -1,52 +1,25 @@
-import { createServerClient } from '@/backend/supabase';
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { fetchUrgencyRules } from '@/lib/urgency-rules-api';
 import { UrgencyRulesEditor } from './urgency-rules-client';
-import { LEVELS, type UrgencyRule } from './levels';
+import { type UrgencyRule } from './levels';
 
-export const dynamic = 'force-dynamic';
-
-export default async function UrgencyRulesPage() {
-  const supabase = createServerClient();
-
-  const { data, error } = await supabase
-    .from('urgency_rules')
-    .select('*')
-    .in('level', ['critical', 'high', 'medium']);
-
-  let allRules = data ?? [];
-
-  // Seed any missing levels so all three cards always render (preserves prior
-  // client-side behavior, now done server-side).
-  if (!error) {
-    const existingLevels = allRules.map((r) => r.level);
-    const missing = LEVELS.filter((l) => !existingLevels.includes(l.level));
-
-    if (missing.length > 0) {
-      const inserts = missing.map((l) => ({
-        level: l.level,
-        name: l.label,
-        examples: [],
-        keywords: [],
-        sort_order: LEVELS.findIndex((lv) => lv.level === l.level) + 1,
-      }));
-
-      const { data: inserted } = await supabase
-        .from('urgency_rules')
-        .insert(inserts)
-        .select();
-
-      allRules = [...allRules, ...(inserted ?? [])];
-    }
-  }
+export default function UrgencyRulesPage() {
+  const { data: allRules = [], isLoading } = useQuery({
+    queryKey: ['urgency-rules'],
+    queryFn: fetchUrgencyRules,
+  });
 
   const rulesMap: Record<string, UrgencyRule> = {};
   for (const rule of allRules) {
     rulesMap[rule.level] = {
       id: rule.id,
       level: rule.level,
-      name: rule.name,
+      name: (rule.name as string) ?? '',
       examples: Array.isArray(rule.examples) ? (rule.examples as string[]) : [],
       keywords: Array.isArray(rule.keywords) ? (rule.keywords as string[]) : [],
-      sort_order: rule.sort_order,
+      sort_order: (rule.sort_order as number) ?? 0,
     };
   }
 
@@ -59,7 +32,11 @@ export default async function UrgencyRulesPage() {
         </p>
       </div>
 
-      <UrgencyRulesEditor rules={rulesMap} />
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading urgency rules…</p>
+      ) : (
+        <UrgencyRulesEditor rules={rulesMap} />
+      )}
     </div>
   );
 }

@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { saveUrgencyExamples } from '@/backend/urgency-rules';
+import { saveUrgencyRules } from '@/lib/urgency-rules-api';
 import { LEVELS, type UrgencyRule } from './levels';
 
 export function UrgencyRulesEditor({
@@ -13,6 +14,15 @@ export function UrgencyRulesEditor({
 }: {
   rules: Record<string, UrgencyRule>;
 }) {
+  const queryClient = useQueryClient();
+  const saveMutation = useMutation({
+    mutationFn: (rule: UrgencyRule & { examples: string[] }) =>
+      saveUrgencyRules([{ id: rule.id, level: rule.level, examples: rule.examples }]),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['urgency-rules'] });
+    },
+  });
+
   const [texts, setTexts] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     for (const [level, rule] of Object.entries(rules)) {
@@ -40,18 +50,17 @@ export function UrgencyRulesEditor({
         .map((line) => line.trim())
         .filter((line) => line.length > 0);
 
-      const res = await saveUrgencyExamples(rule.id, examples);
-
-      if (!res.ok) {
-        toast.error(`Failed to save ${level} rule`);
-      } else {
+      try {
+        await saveMutation.mutateAsync({ ...rule, examples });
         setSaved((prev) => ({ ...prev, [level]: true }));
         setTimeout(() => {
           setSaved((prev) => ({ ...prev, [level]: false }));
         }, 2000);
+      } catch {
+        toast.error(`Failed to save ${level} rule`);
       }
     },
-    [rules]
+    [rules, saveMutation]
   );
 
   function handleTextChange(level: string, value: string) {
