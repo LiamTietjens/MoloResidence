@@ -9,6 +9,7 @@ import { buildUrgencyRuleRoutes } from './routes/urgency-rules.ts';
 import { buildMetricsRoutes } from './routes/metrics.ts';
 import { buildMeRoutes } from './routes/me.ts';
 import { buildKnowledgeBaseRoutes } from './routes/knowledge-bases.ts';
+import { buildPublicBookingRoutes } from './routes/public-booking.ts';
 import type { AppEnv } from './lib/types.ts';
 
 const app = new Hono<AppEnv>().basePath('/api');
@@ -34,8 +35,10 @@ app.use('*', cors({
 
 app.get('/health', (c) => c.json({ ok: true }));
 
-// Public: login. Everything else requires a valid bearer token.
+// Public: login + same-night booking (token-authenticated, no JWT). Everything
+// else requires a valid bearer token.
 app.route('/auth', buildAuthRoutes());
+app.route('/public/booking', buildPublicBookingRoutes());
 app.use('/properties/*', requireAuth);
 app.use('/properties', requireAuth);
 app.route('/properties', buildPropertyRoutes());
