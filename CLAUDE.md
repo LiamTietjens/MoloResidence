@@ -42,6 +42,8 @@ All auth is custom — no Supabase Auth, no OAuth, no magic links. Login posts c
 ### Database Schema (Supabase)
 Tables the dashboard surfaces: `users`, `properties` (8 seeded), `knowledge_bases` (general/property/exception kinds), `knowledge_base_rooms`, `urgency_rules` (4 tiers), `call_logs`, `maintenance_tickets`. (The booking-links, agent-settings, cost-rates, and feature-flags modules were cut from the dashboard during the static migration.)
 
+`same_night_bookings` is a **retained orphan**: the same-night booking flow it backed was removed on 2026-07-17 (KWHotel doesn't expose the endpoints it needed — see `docs/superpowers/specs/2026-07-17-remove-same-night-booking-design.md`). Nothing reads or writes it. The table and its migration are kept deliberately — dropping is irreversible, and the Supabase project was paused when the flow was withdrawn, so its contents were never verified. Do not build on it.
+
 A view `kb_for_room` resolves KB priority: exception > property > general for a given (property, room_number) pair.
 
 The full idempotent SQL schema + seed lives in `MOLO_PLAN.md` section 10.
