@@ -672,3 +672,12 @@ def test_prompt_carries_the_new_client_sections():
     # The prompt's stated transfer hours must match the code gate, or the agent
     # promises availability the gate then refuses.
     assert "mon - friday from 8 in the morning to 5 in the afternoon" in p
+
+
+def test_agent_is_named_tomasz():
+    # Renamed from Mili on 2026-08-15. agent.py still says Mili in its own
+    # (unused) GREETING/INSTRUCTIONS and must not be edited — the pipeline prompt
+    # is the one that reaches the model.
+    import pipeline_prompt as pp
+    assert "**Tomasz**" in pp.PIPELINE_INSTRUCTIONS
+    assert "Mili" not in pp.PIPELINE_INSTRUCTIONS
