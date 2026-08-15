@@ -182,12 +182,27 @@ def test_data_deletion_contact_is_in_the_prompt():
     assert "info at molo residence dot pl" in pipeline_prompt.PIPELINE_INSTRUCTIONS
 
 
-def test_welcome_is_spoken_as_english_regardless_of_tts_language():
-    # TTS_LANGUAGE is "pl", but the greeting is English text. Speaking it under a
-    # Polish voice model gives English words Polish phonetics. The runner pins the
-    # greeting to English and only then follows the caller.
+def test_tts_accent_stays_polish_and_is_never_overridden():
+    # REGRESSION (2026-08-15): the greeting used to be pinned to English, which
+    # overwrote TTS_LANGUAGE one second into every call and never restored it for
+    # an English-speaking caller — the whole call ran with an English accent. The
+    # client wants the Polish-accented voice in both languages.
     import agent_pipeline as ap
-    assert ap.WELCOME_LANGUAGE == "en"
+    assert ap.TTS_LANGUAGE == "pl"
+    assert ap.TTS_FOLLOW_CALLER_LANGUAGE is False
+    assert not hasattr(ap, "WELCOME_LANGUAGE")
+
+
+def test_filler_language_still_follows_the_caller_even_though_accent_does_not(monkeypatch):
+    # Words and accent are separate questions: a Polish caller should hear Polish
+    # WORDS, still read in the same Polish-accented voice.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    calls = []
+    monkeypatch.setattr(ap, "_set_tts_language", lambda legs, lang: calls.append(lang))
+    agent._on_caller_language("pl")
+    assert agent.caller_language == "pl"          # filler wording switches
+    assert calls == []                            # accent does NOT
 
 
 def test_build_session_tunes_turn_taking(monkeypatch):
