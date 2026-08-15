@@ -27,6 +27,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 # includes an AI disclosure and a transcription/data notice, so the pipeline now
 # speaks WELCOME_MESSAGE below instead. agent.py itself is untouched.
 from agent import MoloAgent, _now_warsaw, _now_iso  # noqa
+import kb_search
 import molo_supabase as db
 from pipeline_prompt import PIPELINE_INSTRUCTIONS, render_instructions
 from thinking_filter import strip_thinking_tokens
@@ -377,8 +378,69 @@ class PipelineMoloAgent(MoloAgent):
     stream and delegate the actual synthesis to the base implementation, matching
     that contract exactly."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # identify_guest hasn't run yet, so kb_content is still the general KB.
+        # Capture it now — it is the only chance. agent.py overwrites kb_content
+        # with the room's KB and keeps no reference to what it replaced.
+        self._general_kb: str = self.kb_content or ""
+
     async def tts_node(self, text, model_settings):
         return super().tts_node(_clean_stream(text), model_settings)
+
+    def _kb_with_general(self) -> str:
+        """The room's KB PLUS the portfolio-wide general KB.
+
+        Why this exists: agent.py's identify_guest REPLACES kb_content with the
+        room's KB, and the kb_for_room view cannot supply the general one —
+
+            JOIN knowledge_bases kb ON kb.property_id = p.id
+
+        and a general KB has property_id NULL, so it never joins. (The view even
+        has a `WHEN 'general' THEN 1` priority branch that is therefore dead.)
+
+        The effect was that an identified guest lost all portfolio-level
+        knowledge: they could ask for their Wi-Fi password and get it, then ask
+        something answered only by the general KB — locations, room types,
+        booking channels, Sopot info — and be told we don't have that detail.
+
+        The room KB is placed FIRST and the general KB last, so kb_search.py's
+        "ROOM-SPECIFIC INFO overrides the general info below" instruction keeps
+        working: anything the room defines still wins.
+        """
+        room = self.kb_content or ""
+        general = self._general_kb or ""
+        if not general or general == room or general in room:
+            return room          # pre-identification, or already included
+        if not room:
+            return general
+        return (
+            f"{room}\n\n---\n\n"
+            f"### PORTFOLIO-WIDE GENERAL INFO (applies to all Molo Residence "
+            f"properties; anything above about this specific room or property "
+            f"takes precedence)\n{general}"
+        )
+
+    async def _answer_kb(self, question: str) -> str:
+        """Same shape as agent.py's _answer_kb, but searching room + general."""
+        key = question.strip().lower()
+        cached = self._kb_answer_cache.get(key)
+        if cached is not None:
+            return cached
+
+        combined = self._kb_with_general()
+        result = await kb_search.answer_from_kb(question, combined)
+        if result is None:
+            # Keyword fallback reads self.kb_content, so point it at the combined
+            # text for the duration and put it back afterwards.
+            original = self.kb_content
+            try:
+                self.kb_content = combined
+                result = self._search_kb_content(question)
+            finally:
+                self.kb_content = original
+        self._kb_answer_cache[key] = result
+        return result
 
     # Fixed, non-interruptible spoken filler per tool. Covers the tool-call gap
     # with a consistent phrase (this replaces the removed typing sound). Spoken

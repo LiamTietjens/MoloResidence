@@ -686,3 +686,79 @@ def test_agent_is_named_tomasz():
     # alone means the agent only says its name if the caller asks.
     assert "Tomasz" in ap.WELCOME_MESSAGE
     assert "Mili" not in ap.WELCOME_MESSAGE
+
+
+# ── General KB survives identify_guest ───────────────────────────────────────
+
+def test_general_kb_is_captured_at_init():
+    # It is only available at construction: agent.py overwrites kb_content with
+    # the room's KB in identify_guest and keeps no reference to what it replaced.
+    import agent_pipeline as ap
+    a = ap.PipelineMoloAgent(instructions="x", default_kb_content="GENERAL INFO")
+    assert a._general_kb == "GENERAL INFO"
+
+
+def test_general_kb_is_appended_after_the_room_kb_swap():
+    # THE BUG (2026-08-15): once identified, a guest lost all portfolio-level
+    # knowledge. kb_for_room joins on kb.property_id = p.id and a general KB has
+    # property_id NULL, so the view can never return it — the guest could get
+    # their Wi-Fi password and then be told we have no info on locations or
+    # booking, which the general KB answers.
+    import agent_pipeline as ap
+    a = ap.PipelineMoloAgent(instructions="x", default_kb_content="PORTFOLIO FACTS")
+    a.kb_content = "### ROOM-SPECIFIC INFO\nWIFI: molo1234"
+    combined = a._kb_with_general()
+    assert "WIFI: molo1234" in combined
+    assert "PORTFOLIO FACTS" in combined
+    # Room content must come FIRST so kb_search's "room-specific overrides the
+    # general info below" instruction still resolves conflicts the right way.
+    assert combined.index("WIFI: molo1234") < combined.index("PORTFOLIO FACTS")
+
+
+def test_general_kb_is_not_duplicated_before_identification():
+    # Pre-identify_guest, kb_content IS the general KB. Appending it to itself
+    # would double every fact and waste the Gemini context.
+    import agent_pipeline as ap
+    a = ap.PipelineMoloAgent(instructions="x", default_kb_content="ONLY GENERAL")
+    assert a._kb_with_general().count("ONLY GENERAL") == 1
+
+
+def test_no_general_kb_still_works():
+    # A DB hiccup at call start leaves default_kb_content empty; the room KB must
+    # still be searched rather than the whole thing collapsing.
+    import agent_pipeline as ap
+    a = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    a.kb_content = "ROOM ONLY"
+    assert a._kb_with_general() == "ROOM ONLY"
+
+
+def test_answer_kb_searches_the_combined_text(monkeypatch):
+    import agent_pipeline as ap
+    seen = {}
+
+    async def fake_answer(question, kb_content):
+        seen["kb"] = kb_content
+        return "answer"
+
+    monkeypatch.setattr(ap.kb_search, "answer_from_kb", fake_answer)
+    a = ap.PipelineMoloAgent(instructions="x", default_kb_content="GENERAL BIT")
+    a.kb_content = "ROOM BIT"
+    assert asyncio.run(a._answer_kb("where is the pier?")) == "answer"
+    assert "ROOM BIT" in seen["kb"] and "GENERAL BIT" in seen["kb"]
+
+
+def test_keyword_fallback_also_sees_the_general_kb(monkeypatch):
+    # When Gemini errors/times out it returns None and the naive keyword search
+    # takes over — that path reads self.kb_content, so it must see the general KB
+    # too, and must put kb_content back afterwards.
+    import agent_pipeline as ap
+
+    async def fake_answer(question, kb_content):
+        return None
+
+    monkeypatch.setattr(ap.kb_search, "answer_from_kb", fake_answer)
+    a = ap.PipelineMoloAgent(instructions="x", default_kb_content="the pier is wooden")
+    a.kb_content = "ROOM BIT"
+    out = asyncio.run(a._answer_kb("tell me about the pier"))
+    assert "pier" in out.lower()
+    assert a.kb_content == "ROOM BIT", "kb_content must be restored after the fallback"
