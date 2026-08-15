@@ -14,7 +14,8 @@ import time
 
 from livekit import agents, rtc
 from livekit.agents import (AgentServer, AgentSession, room_io, inference, tts as tts_api,
-                            BackgroundAudioPlayer, BuiltinAudioClip, AudioConfig)
+                            BackgroundAudioPlayer, BuiltinAudioClip, AudioConfig,
+                            function_tool, RunContext)
 from livekit.api import LiveKitAPI
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -45,10 +46,15 @@ PIPELINE_INSTRUCTIONS_TEXT = PIPELINE_INSTRUCTIONS
 # for the rest of the call once it hears the caller (see the Tone & Style section
 # of the prompt).
 WELCOME_MESSAGE = (
-    "Hi, thank you for calling Molo Residence. My name is Mili and I'm an AI agent. "
-    "This call is transcribed for quality purposes — you may hang up at any point, "
-    "or contact info@moloresidence.pl to delete your data."
+    "Hi, welcome to Molo Residence. I'm merely an AI agent. This call is being "
+    "transcribed for quality purposes. Are you an existing guest or looking to "
+    "book a stay?"
 )
+
+# The greeting is English, so the TTS renders it as English no matter what
+# TTS_LANGUAGE says. From the caller's first words onward the language follows
+# what Deepgram detects — see PipelineMoloAgent._on_caller_language.
+WELCOME_LANGUAGE = "en"
 
 # Model config — all env-tunable so they can be changed without a rebuild.
 # STT: Deepgram Nova-3 in MULTILINGUAL mode (client requirement 2026-08-15).
@@ -113,6 +119,54 @@ VAD_MIN_SILENCE = float(os.getenv("VAD_MIN_SILENCE", "0.6"))               # Sil
 DEAD_AIR_CHECKIN = 25
 DEAD_AIR_HANGUP = 40
 MAX_CALL_DURATION = 7 * 60
+
+# ── Front-desk opening hours ────────────────────────────────────────────────
+# Local Sopot time, 24h, [open, close). transfer_call is gated on these: outside
+# them there is nobody to transfer to, so the agent says so instead of dialling
+# into an unanswered phone.
+#
+# ⚠️ THESE HOURS ARE UNVERIFIED. The knowledge base has no reception/front-desk
+# hours anywhere — only check-in/check-out times (14:00-16:00 / 11:00-12:00). The
+# client guessed "maybe 8am to 5pm, but I'm not 100% sure", and that guess is what
+# ships here. Both ends are env-tunable so they can be corrected without a rebuild:
+#   lk agent update-secrets --project molo-residence --id CA_9DeKbNqCaYHQ \
+#     --secrets FRONT_DESK_OPEN_HOUR=9,FRONT_DESK_CLOSE_HOUR=18
+FRONT_DESK_OPEN_HOUR = int(os.getenv("FRONT_DESK_OPEN_HOUR", "8"))
+FRONT_DESK_CLOSE_HOUR = int(os.getenv("FRONT_DESK_CLOSE_HOUR", "17"))
+
+
+def _front_desk_is_open(now=None) -> bool:
+    """Is the front desk staffed right now, in Sopot local time?"""
+    now = now or _now_warsaw()
+    return FRONT_DESK_OPEN_HOUR <= now.hour < FRONT_DESK_CLOSE_HOUR
+
+
+def _spoken_hour(hour: int) -> str:
+    """A 24h hour as something TTS reads naturally ("8 AM", "5 PM")."""
+    suffix = "AM" if hour < 12 else "PM"
+    h = hour % 12 or 12
+    return f"{h} {suffix}"
+
+
+# The email is written the way it should be SPOKEN, not as an address. TTS reads
+# "info@moloresidence.pl" as a mangled URL; spelling it out loud is the client's
+# own convention (they use the same form in the system prompt).
+SPOKEN_EMAIL = "info at molo residence dot pl"
+
+
+def _closed_message(language: str = "en") -> str:
+    """What the caller hears when they ask for a human out of hours."""
+    open_s, close_s = _spoken_hour(FRONT_DESK_OPEN_HOUR), _spoken_hour(FRONT_DESK_CLOSE_HOUR)
+    if language == "pl":
+        return (
+            f"Przepraszam, konsultanci są dostępni tylko od {FRONT_DESK_OPEN_HOUR}:00 "
+            f"do {FRONT_DESK_CLOSE_HOUR}:00. Proszę zadzwonić ponownie w tych godzinach "
+            f"albo napisać na {SPOKEN_EMAIL}."
+        )
+    return (
+        f"Sorry, humans are only available from {open_s} to {close_s}. Please feel "
+        f"free to call back, or you can send a message to {SPOKEN_EMAIL}."
+    )
 
 
 def _stt_kwargs() -> dict:
@@ -187,14 +241,29 @@ def _build_tts():
     # max_retry_per_tts=1: the voice-does-not-exist error is flagged
     # retryable:false, so extra attempts only add dead air before failing over.
     # One attempt each keeps time-to-first-audio short on a phone call.
-    return tts_api.FallbackAdapter(candidates, max_retry_per_tts=1)
+    #
+    # The legs are returned alongside the adapter because FallbackAdapter has no
+    # update_options() of its own — switching the spoken language at runtime means
+    # calling update_options() on each leg directly (see _set_tts_language).
+    return tts_api.FallbackAdapter(candidates, max_retry_per_tts=1), candidates
+
+
+def _set_tts_language(legs, language: str) -> None:
+    """Retune every TTS leg to `language`. Guarded — a failure here must not stop
+    the agent speaking, it just means this utterance keeps the previous accent."""
+    for leg in legs:
+        try:
+            leg.update_options(language=language)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("TTS language switch to %s failed: %s", language, exc)
 
 
 def build_pipeline_session() -> AgentSession:
     """The one real difference from agent.py: a pipeline session instead of the
     native-audio RealtimeModel. VAD + turn detection + interruption knobs match
     agent.py — but here they are ACTIVE (they were inert with native audio)."""
-    return AgentSession(
+    tts_adapter, tts_legs = _build_tts()
+    session = AgentSession(
         # Silero VAD: widen the silence window 0.55 -> 0.75 so brief mid-sentence
         # pauses aren't read as end-of-turn. This is the ONLY end-of-turn guard on
         # Polish speech — the turn-detector model below has no Polish support.
@@ -210,8 +279,12 @@ def build_pipeline_session() -> AgentSession:
         resume_false_interruption=True,
         stt=inference.STT(**_stt_kwargs()),   # Deepgram Nova-3, language="multi"
         llm=inference.LLM(model=LLM_MODEL),
-        tts=_build_tts(),                     # FallbackAdapter: ElevenLabs -> Cartesia
+        tts=tts_adapter,                      # FallbackAdapter over the Cartesia legs
     )
+    # Stashed so the runner can retune the spoken language mid-call; FallbackAdapter
+    # itself exposes no update_options().
+    session._molo_tts_legs = tts_legs
+    return session
 
 
 # Marker tokens whose PRESENCE in a chunk means it carries Gemma-4 reasoning and
@@ -268,12 +341,38 @@ class PipelineMoloAgent(MoloAgent):
     # Varied phrasings that do NOT all open with the same acknowledgement word
     # ("Sure/Okay/Great/Perfect"): the model tends to open its own reply with
     # "Sure thing!" too, and stacking those read as robotic "sure … sure".
+    # Client-authored wording (2026-08-15), per language. `session.say()` speaks
+    # the literal string — nothing translates it — so a Polish caller would hear an
+    # English filler unless we hold both and pick by detected language. The value
+    # is keyed by the language code Deepgram reports for the caller's last turn
+    # (see _on_caller_language); anything we have no translation for falls back to
+    # English.
+    #
+    # search_kb is deliberately SILENT (None): the client wants no acknowledgement
+    # while the knowledge base is queried. The slow-tool typing cover below still
+    # applies if the lookup runs long, so a slow search isn't bare dead air.
     _TOOL_FILLERS = {
-        "identify_guest":         "One moment while I pull up your reservation.",
-        "search_kb":              "Let me check that for you.",
-        "suggest_available_rooms":"Checking availability for those dates now.",
-        "send_booking_link":      "I'll send that booking link over to you now.",
-        "raise_maintenance_ticket":"Getting that ticket raised for you now.",
+        "identify_guest": {
+            "en": "thank you very much, I'll need just a moment to find your reservation.",
+            "pl": "dziękuję bardzo, potrzebuję chwilę, żeby odnaleźć rezerwację.",
+        },
+        "search_kb": None,
+        "suggest_available_rooms": {
+            "en": "Okay perfect, let me quickly check on those dates for you.",
+            "pl": "Okej, świetnie, już sprawdzam te terminy.",
+        },
+        "send_booking_link": {
+            "en": "alright, great! I'll send that booking link over to you now.",
+            "pl": "świetnie! Wysyłam teraz link do rezerwacji.",
+        },
+        "raise_maintenance_ticket": {
+            "en": "okay thanks, I'll raise that ticket for you right now.",
+            "pl": "dobrze, dziękuję, zgłaszam to teraz.",
+        },
+        "transfer_call": {
+            "en": "Alright, I am now trying to transfer you to the front desk.",
+            "pl": "Dobrze, próbuję teraz połączyć Pana z recepcją.",
+        },
     }
 
     # When the model chains tools in one turn (e.g. identify_guest -> search_kb),
@@ -321,9 +420,70 @@ class PipelineMoloAgent(MoloAgent):
         except Exception as exc:  # noqa: BLE001
             logger.warning("slow-tool cover failed: %s", exc)
 
+    # Language the caller last spoke, as reported by Deepgram. Drives both the
+    # filler wording and the TTS accent. Starts as the greeting's language because
+    # the agent speaks first, before there is anything to detect.
+    caller_language = WELCOME_LANGUAGE
+
+    def _on_caller_language(self, language: str | None) -> None:
+        """Follow the caller's language: retune TTS so replies are pronounced in it.
+
+        Deepgram nova-3 in multi mode reports a language per transcribed turn.
+        Without this the whole call is spoken with one fixed accent — Polish
+        replies read with English phonetics, or (with TTS_LANGUAGE=pl) the English
+        greeting and fillers read with Polish ones.
+        """
+        if not language:
+            return
+        # Deepgram may return a region-qualified tag ("en-US"); TTS wants the base.
+        base = language.split("-")[0].lower()
+        if base == self.caller_language:
+            return
+        self.caller_language = base
+        # Agent.session raises RuntimeError when the agent isn't attached to a
+        # running session, so this can't be a plain getattr. Losing the retune is
+        # survivable — the filler wording above has already switched.
+        try:
+            legs = getattr(self.session, "_molo_tts_legs", None)
+        except Exception:  # noqa: BLE001
+            legs = None
+        if legs:
+            logger.info("caller language -> %s; retuning TTS", base)
+            _set_tts_language(legs, base)
+
+    def _filler_for(self, key: str) -> str | None:
+        """The filler for `key` in the caller's current language, or None if the
+        tool is meant to be silent."""
+        variants = self._TOOL_FILLERS.get(key)
+        if not variants:
+            return None
+        return variants.get(self.caller_language) or variants.get("en")
+
+    @function_tool()
+    async def transfer_call(self, context: RunContext) -> str:
+        """Use to transfer the caller to a live human."""
+        # Overrides MoloAgent.transfer_call to gate on front-desk opening hours.
+        # agent.py is never edited, so the check lives here.
+        #
+        # Why gate at all: outside hours the transfer dials a phone nobody
+        # answers. The caller sits through ringing and then a dead line, which is
+        # worse than being told plainly that staff are unavailable.
+        if not _front_desk_is_open():
+            now = _now_warsaw()
+            msg = _closed_message(self.caller_language)
+            logger.info("transfer refused — front desk closed (local %s, open %d-%d)",
+                        now.strftime("%H:%M"), FRONT_DESK_OPEN_HOUR, FRONT_DESK_CLOSE_HOUR)
+            self._record_tool("transfer_call", {"local_time": now.isoformat()},
+                              f"refused, front desk closed: {msg}")
+            # SAY: so the model speaks it rather than treating it as a note. The
+            # text is already guest-facing and in the caller's language.
+            return f"SAY (word for word, do not add anything): {msg}"
+        return await super().transfer_call(context)
+
     async def _before_tool(self, context, key):
-        # 1) Fixed spoken filler (unchanged) — one per 8s cooldown, audio-only.
-        phrase = self._TOOL_FILLERS.get(key)
+        # 1) Fixed spoken filler — one per 8s cooldown, audio-only, in the
+        #    caller's language. None means this tool speaks nothing at all.
+        phrase = self._filler_for(key)
         if phrase:
             now = time.monotonic()
             if now - getattr(self, "_last_filler_at", 0.0) >= self._FILLER_COOLDOWN_S:
@@ -406,6 +566,16 @@ async def molo_pipeline_session(ctx: agents.JobContext):
     # answer can be reviewed against what was actually asked.
     transcript_log: list[str] = []
 
+    # Follow the caller's language. Deepgram nova-3 (language="multi") reports the
+    # detected language per turn; the agent retunes TTS so replies AND the spoken
+    # tool fillers come out in the language actually being spoken.
+    @session.on("user_input_transcribed")
+    def _on_language(ev):
+        try:
+            agent._on_caller_language(getattr(ev, "language", None))
+        except Exception:  # noqa: BLE001 — never let this interrupt the call
+            pass
+
     @session.on("conversation_item_added")
     def _on_item(ev):
         try:
@@ -449,6 +619,10 @@ async def molo_pipeline_session(ctx: agents.JobContext):
             agent._stop_cover()
 
     # ── Start the conversation ──────────────────────────────
+    # The greeting is English, so pin the TTS to English for it regardless of
+    # TTS_LANGUAGE — otherwise English words come out with Polish phonetics. From
+    # the caller's first turn on, _on_caller_language takes over.
+    _set_tts_language(session._molo_tts_legs, WELCOME_LANGUAGE)
     # say() not generate_reply(): the disclosure must be spoken WORD FOR WORD, and
     # generate_reply would let the model paraphrase it. allow_interruptions=False so
     # a caller talking over the opening can't cut the notice short.

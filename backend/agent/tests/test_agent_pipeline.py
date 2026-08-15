@@ -104,7 +104,7 @@ def test_primary_leads_and_the_floor_backs_it(monkeypatch):
     monkeypatch.setattr(ap.inference, "TTS", lambda **kw: kw)
     monkeypatch.setattr(ap.tts_api, "FallbackAdapter", lambda c, **kw: c)
 
-    candidates = ap._build_tts()
+    candidates, _legs = ap._build_tts()
     # Both legs run the same model, so VOICE is what distinguishes them: the
     # client's verified voice leads, stock "Katie" backs it up.
     assert [c["voice"] for c in candidates] == [
@@ -136,7 +136,8 @@ def test_tts_failover_happens_at_synthesis_not_construction(monkeypatch):
         return "adapter"
 
     monkeypatch.setattr(ap.tts_api, "FallbackAdapter", fake_adapter)
-    assert ap._build_tts() == "adapter"
+    adapter, legs = ap._build_tts()
+    assert adapter == "adapter"
     # More than one candidate, or there is nothing to fail over TO.
     assert len(wrapped["candidates"]) >= 2
     # The Cartesia floor must be last so it catches everything above it.
@@ -151,26 +152,42 @@ def test_cartesia_floor_keeps_its_tuning(monkeypatch):
     monkeypatch.setattr(ap.inference, "TTS", lambda **kw: kw)
     monkeypatch.setattr(ap.tts_api, "FallbackAdapter", lambda c, **kw: c)
 
-    floor = ap._build_tts()[-1]
+    floor = ap._build_tts()[0][-1]
     assert floor["model"] == "cartesia/sonic-3.5"
     assert floor["extra_kwargs"]["speed"] == 1.1
     assert floor["extra_kwargs"]["emotion"] == "content"
 
 
 def test_welcome_message_is_spoken_verbatim_and_carries_the_disclosures():
-    # The opening is a compliance line, not flavour text: it must state that Mili is
-    # an AI, that the call is transcribed, and how to get data deleted. It is spoken
-    # with session.say (not generate_reply) precisely so the model cannot reword it.
+    # The opening carries two compliance statements — that this is an AI, and that
+    # the call is transcribed. It is spoken with session.say (not generate_reply)
+    # precisely so the model cannot reword either one.
+    #
+    # The data-deletion contact moved OUT of the greeting (client, 2026-08-15) and
+    # into the system prompt, so the agent offers it when asked rather than
+    # reciting it up front. Don't re-assert it here.
     import agent_pipeline as ap
     w = ap.WELCOME_MESSAGE
     assert "Molo Residence" in w
-    assert "Mili" in w
-    assert "AI agent" in w                    # AI disclosure
-    assert "transcribed" in w                 # recording/transcription notice
-    assert "hang up at any point" in w        # right to end the call
-    assert "info@moloresidence.pl" in w       # data-deletion contact
-    # Guard the mis-transcribed spellings from the original dictation.
-    assert "Mola" not in w and "morlo" not in w.lower()
+    assert "AI agent" in w            # AI disclosure
+    assert "transcribed" in w         # transcription notice
+    # Guard the mis-transcribed spellings from the dictation ("Moller", "AR agent").
+    assert "Moller" not in w and "Mola" not in w
+    assert "AR agent" not in w
+
+
+def test_data_deletion_contact_is_in_the_prompt():
+    # It left the greeting, so it must still be somewhere the agent can reach it.
+    import pipeline_prompt
+    assert "info at molo residence dot pl" in pipeline_prompt.PIPELINE_INSTRUCTIONS
+
+
+def test_welcome_is_spoken_as_english_regardless_of_tts_language():
+    # TTS_LANGUAGE is "pl", but the greeting is English text. Speaking it under a
+    # Polish voice model gives English words Polish phonetics. The runner pins the
+    # greeting to English and only then follows the caller.
+    import agent_pipeline as ap
+    assert ap.WELCOME_LANGUAGE == "en"
 
 
 def test_build_session_tunes_turn_taking(monkeypatch):
@@ -243,33 +260,10 @@ def test_before_tool_speaks_a_variant_noninterruptibly():
     ctx = _FakeCtx()
     asyncio.run(agent._before_tool(ctx, "suggest_available_rooms"))
     text, allow = ctx.session.said
-    assert text in ap.PipelineMoloAgent._TOOL_FILLERS["suggest_available_rooms"]
+    assert text in ap.PipelineMoloAgent._TOOL_FILLERS["suggest_available_rooms"].values()
     assert allow is False   # non-interruptible: a fast tool return can't cut it off
 
 
-def test_every_tool_has_several_filler_variants():
-    # A single fixed phrase per tool made guests hear the IDENTICAL sentence on
-    # every call — the clearest "robot" tell in the whole conversation.
-    import agent_pipeline as ap
-    for key, variants in ap.PipelineMoloAgent._TOOL_FILLERS.items():
-        assert isinstance(variants, tuple), f"{key} must hold a tuple of variants"
-        assert len(variants) >= 3, f"{key} has too few variants to sound varied"
-        assert len(set(variants)) == len(variants), f"{key} has duplicate variants"
-
-
-def test_repeated_calls_to_same_tool_vary_the_phrasing():
-    # The behaviour that actually fixes the robot tell: calling the same tool
-    # repeatedly must not produce the same sentence every time.
-    import time as _t
-    import agent_pipeline as ap
-    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
-    ctx = _FakeCtx()
-    heard = set()
-    for _ in range(40):
-        agent._last_filler_at = _t.monotonic() - (ap.PipelineMoloAgent._FILLER_COOLDOWN_S + 1)
-        asyncio.run(agent._before_tool(ctx, "search_kb"))
-        heard.add(ctx.session.said[0])
-    assert len(heard) > 1, f"filler never varied across 40 calls: {heard}"
 
 
 def test_before_tool_noop_for_unknown_tool():
@@ -297,29 +291,10 @@ def test_chained_second_filler_is_suppressed():
     asyncio.run(agent._before_tool(ctx, "identify_guest"))
     assert ctx.session.said is not None                 # first filler speaks
     ctx.session.said = None
-    asyncio.run(agent._before_tool(ctx, "search_kb"))   # chained immediately
+    asyncio.run(agent._before_tool(ctx, "suggest_available_rooms"))  # chained immediately
     assert ctx.session.said is None                     # suppressed (no stacking)
 
 
-def test_filler_fillers_have_no_shared_leading_word():
-    # No two fillers — across ALL tools and ALL variants — open with the same word,
-    # so whichever pair happens to land back-to-back can never sound like "sure … sure".
-    import agent_pipeline as ap
-    firsts = [v.split()[0].lower()
-              for variants in ap.PipelineMoloAgent._TOOL_FILLERS.values()
-              for v in variants]
-    dupes = {w for w in firsts if firsts.count(w) > 1}
-    assert not dupes, f"fillers share a leading word: {sorted(dupes)}"
-
-
-def test_fillers_avoid_the_acknowledgement_words_the_model_uses():
-    # The model tends to open its own reply with "Sure thing!"; a filler opening the
-    # same way stacks into "Sure … sure" and reads as robotic.
-    import agent_pipeline as ap
-    banned = {"sure", "okay", "ok", "great", "perfect"}
-    for key, variants in ap.PipelineMoloAgent._TOOL_FILLERS.items():
-        for v in variants:
-            assert v.split()[0].lower().strip(",") not in banned, f"{key}: {v!r}"
 
 
 class _FakeCoverHandle:
@@ -394,9 +369,139 @@ def test_filler_speaks_again_after_cooldown():
     import agent_pipeline as ap
     agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
     ctx = _FakeCtx()
-    asyncio.run(agent._before_tool(ctx, "search_kb"))
+    asyncio.run(agent._before_tool(ctx, "identify_guest"))
     assert ctx.session.said is not None
     ctx.session.said = None
     agent._last_filler_at = _t.monotonic() - (ap.PipelineMoloAgent._FILLER_COOLDOWN_S + 1)
-    asyncio.run(agent._before_tool(ctx, "search_kb"))
+    asyncio.run(agent._before_tool(ctx, "identify_guest"))
     assert ctx.session.said is not None
+
+
+# ── Localized fillers ────────────────────────────────────────────────────────
+
+def test_search_kb_speaks_nothing():
+    # Client instruction 2026-08-15: say nothing at all while the knowledge base is
+    # queried. None (not "") is the sentinel — an empty string would still take the
+    # cooldown slot and suppress a legitimate filler on a chained tool.
+    import agent_pipeline as ap
+    assert ap.PipelineMoloAgent._TOOL_FILLERS["search_kb"] is None
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    ctx = _FakeCtx()
+    asyncio.run(agent._before_tool(ctx, "search_kb"))
+    assert ctx.session.said is None
+
+
+def test_every_speaking_tool_has_both_languages():
+    # session.say() speaks the literal string — nothing translates it. A tool with
+    # only an English filler would talk English at a Polish caller.
+    import agent_pipeline as ap
+    for key, variants in ap.PipelineMoloAgent._TOOL_FILLERS.items():
+        if variants is None:
+            continue
+        assert set(variants) >= {"en", "pl"}, f"{key} is missing a language"
+        assert all(v.strip() for v in variants.values()), f"{key} has an empty phrase"
+
+
+def test_filler_follows_the_callers_language():
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    ctx = _FakeCtx()
+
+    asyncio.run(agent._before_tool(ctx, "identify_guest"))
+    assert ctx.session.said[0] == ap.PipelineMoloAgent._TOOL_FILLERS["identify_guest"]["en"]
+
+    agent.caller_language = "pl"
+    agent._last_filler_at = 0.0          # clear the cooldown
+    ctx.session.said = None
+    asyncio.run(agent._before_tool(ctx, "identify_guest"))
+    assert ctx.session.said[0] == ap.PipelineMoloAgent._TOOL_FILLERS["identify_guest"]["pl"]
+
+
+def test_unknown_language_falls_back_to_english_rather_than_silence():
+    # Deepgram can report a language we hold no translation for. Speaking English is
+    # a small wrong; speaking nothing is dead air mid-tool.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    agent.caller_language = "de"
+    assert agent._filler_for("identify_guest") == \
+        ap.PipelineMoloAgent._TOOL_FILLERS["identify_guest"]["en"]
+
+
+def test_region_qualified_language_tags_are_normalized(monkeypatch):
+    # Deepgram may report "en-US"/"pl-PL"; TTS wants the base tag.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    monkeypatch.setattr(ap, "_set_tts_language", lambda legs, lang: None)
+    agent._on_caller_language("pl-PL")
+    assert agent.caller_language == "pl"
+
+
+# ── Front-desk opening hours ─────────────────────────────────────────────────
+
+def test_front_desk_hours_boundaries():
+    # Half-open [open, close): 17:00 is CLOSED, not "just closing".
+    from datetime import datetime
+    import agent_pipeline as ap
+    at = lambda h: datetime(2026, 8, 17, h, 0)
+    assert not ap._front_desk_is_open(at(ap.FRONT_DESK_OPEN_HOUR - 1))
+    assert ap._front_desk_is_open(at(ap.FRONT_DESK_OPEN_HOUR))
+    assert ap._front_desk_is_open(at(ap.FRONT_DESK_CLOSE_HOUR - 1))
+    assert not ap._front_desk_is_open(at(ap.FRONT_DESK_CLOSE_HOUR))
+    assert not ap._front_desk_is_open(at(3))
+
+
+def test_closed_message_speaks_the_email_not_the_address():
+    # TTS mangles "info@moloresidence.pl" into a URL-ish noise. The client writes it
+    # out phonetically on purpose; keep it that way in both languages.
+    import agent_pipeline as ap
+    for lang in ("en", "pl"):
+        msg = ap._closed_message(lang)
+        assert "info at molo residence dot pl" in msg
+        assert "@" not in msg
+
+
+def test_closed_message_states_the_actual_hours():
+    import agent_pipeline as ap
+    msg = ap._closed_message("en")
+    assert ap._spoken_hour(ap.FRONT_DESK_OPEN_HOUR) in msg
+    assert ap._spoken_hour(ap.FRONT_DESK_CLOSE_HOUR) in msg
+
+
+def test_spoken_hour_reads_naturally():
+    import agent_pipeline as ap
+    assert ap._spoken_hour(8) == "8 AM"
+    assert ap._spoken_hour(17) == "5 PM"
+    assert ap._spoken_hour(12) == "12 PM"
+    assert ap._spoken_hour(0) == "12 AM"
+
+
+def test_transfer_is_refused_out_of_hours_without_dialling(monkeypatch):
+    # The point of the gate: outside hours the caller must be TOLD, not dialled into
+    # a phone nobody answers. super().transfer_call must never run.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    monkeypatch.setattr(ap, "_front_desk_is_open", lambda now=None: False)
+
+    called = {"super": False}
+    async def _boom(self, context):
+        called["super"] = True
+        return "DIALLED"
+    monkeypatch.setattr(ap.MoloAgent, "transfer_call", _boom)
+
+    out = asyncio.run(ap.PipelineMoloAgent.transfer_call.__wrapped__(agent, _FakeCtx()))
+    assert not called["super"], "dialled the front desk while closed"
+    assert "only available" in out
+    assert "info at molo residence dot pl" in out
+
+
+def test_transfer_proceeds_during_hours(monkeypatch):
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    monkeypatch.setattr(ap, "_front_desk_is_open", lambda now=None: True)
+
+    async def _ok(self, context):
+        return "DIALLED"
+    monkeypatch.setattr(ap.MoloAgent, "transfer_call", _ok)
+
+    out = asyncio.run(ap.PipelineMoloAgent.transfer_call.__wrapped__(agent, _FakeCtx()))
+    assert out == "DIALLED"
