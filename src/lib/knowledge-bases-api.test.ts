@@ -65,20 +65,26 @@ describe('knowledge-bases-api', () => {
     expect((spy.mock.calls[0][1] as RequestInit).body).toBe(JSON.stringify({ value: true }));
   });
 
-  it('saveKbRooms PUTs /knowledge-bases/:id/rooms with {roomNumbers}', async () => {
+  it('saveKbRooms PUTs /knowledge-bases/:id/rooms with property-scoped {rooms}', async () => {
     const spy = vi.spyOn(client, 'apiFetch').mockResolvedValue({ ok: true } as never);
-    await saveKbRooms('kb1', ['101', '102']);
+    const rooms = [
+      { property_id: 'p1', room_number: '101' },
+      { property_id: 'p2', room_number: '102' },
+    ];
+    await saveKbRooms('kb1', rooms);
     expect(spy.mock.calls[0][0]).toBe('/knowledge-bases/kb1/rooms');
     expect((spy.mock.calls[0][1] as RequestInit).method).toBe('PUT');
-    expect((spy.mock.calls[0][1] as RequestInit).body).toBe(JSON.stringify({ roomNumbers: ['101', '102'] }));
+    expect((spy.mock.calls[0][1] as RequestInit).body).toBe(JSON.stringify({ rooms }));
   });
 
-  it('removeKbRoom DELETEs /knowledge-bases/:id/rooms with body', async () => {
+  it('removeKbRoom DELETEs /knowledge-bases/:id/rooms with property-scoped body', async () => {
     const spy = vi.spyOn(client, 'apiFetch').mockResolvedValue({ ok: true } as never);
-    await removeKbRoom('kb1', '101');
+    await removeKbRoom('kb1', '101', 'kb2', 'p1');
     expect(spy.mock.calls[0][0]).toBe('/knowledge-bases/kb1/rooms');
     expect((spy.mock.calls[0][1] as RequestInit).method).toBe('DELETE');
-    expect((spy.mock.calls[0][1] as RequestInit).body).toBe(JSON.stringify({ roomNumber: '101', otherKbId: undefined }));
+    expect((spy.mock.calls[0][1] as RequestInit).body).toBe(
+      JSON.stringify({ roomNumber: '101', otherKbId: 'kb2', property_id: 'p1' }),
+    );
   });
 
   it('removeKbRoom passes otherKbId when provided', async () => {

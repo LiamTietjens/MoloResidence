@@ -62,12 +62,12 @@ export function buildKnowledgeBaseRoutes(makeClient: ClientFactory = serviceClie
     const id = c.req.param('id');
     const [{ data: kb }, { data: properties }, { data: propRooms }, { data: allKbRooms }] =
       await Promise.all([
-        sb.from('knowledge_bases').select('id, name, content, is_default_general').eq('id', id).single(),
+        sb.from('knowledge_bases').select('id, name, content, is_default_general, property_id').eq('id', id).single(),
         sb.from('properties').select('id, name').order('name'),
         sb.from('property_rooms').select('property_id, room_number').order('room_number'),
         sb
           .from('knowledge_base_rooms')
-          .select('room_number, knowledge_base_id, knowledge_bases(id, name, property_id)')
+          .select('room_number, property_id, knowledge_base_id, knowledge_bases(id, name, property_id)')
           .order('room_number'),
       ]);
 
@@ -148,26 +148,66 @@ export function buildKnowledgeBaseRoutes(makeClient: ClientFactory = serviceClie
   // (delete existing assignments for this KB then insert the new set).
   app.put('/:id/rooms', async (c) => {
     const body = await c.req.json().catch(() => null);
-    if (!body || !Array.isArray(body.roomNumbers)) {
-      return c.json({ error: 'roomNumbers (array) is required.' }, 400);
-    }
+    if (!body) return c.json({ error: 'Invalid JSON body.' }, 400);
     const id = c.req.param('id');
-    // Dedupe + trim + drop empties: the UI keys rooms by property:room but the
-    // table is unique on (knowledge_base_id, room_number), so the same room_number
-    // under two properties would otherwise insert duplicates and violate the constraint.
-    const roomNumbers = [
-      ...new Set(
-        (body.roomNumbers as unknown[])
-          .filter((r): r is string => typeof r === 'string' && r.trim() !== '')
-          .map((r) => r.trim()),
-      ),
-    ];
+
+    // Rooms are property-scoped: the same room NUMBER exists at several properties,
+    // so an assignment is (property_id, room_number). Preferred payload:
+    // rooms: [{property_id, room_number}]. Back-compat: a bare roomNumbers string[]
+    // is still accepted (stored without a property).
+    const seen = new Set<string>();
+    const rooms: { property_id: string | null; room_number: string }[] = [];
+    if (Array.isArray(body.rooms)) {
+      for (const r of body.rooms as unknown[]) {
+        const o = (r ?? {}) as { property_id?: unknown; room_number?: unknown };
+        const pid = typeof o.property_id === 'string' && o.property_id ? o.property_id : null;
+        const rn = typeof o.room_number === 'string' ? o.room_number.trim() : '';
+        if (!rn) continue;
+        const key = `${pid ?? ''}:${rn}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rooms.push({ property_id: pid, room_number: rn });
+      }
+    } else if (Array.isArray(body.roomNumbers)) {
+      for (const r of body.roomNumbers as unknown[]) {
+        if (typeof r !== 'string' || r.trim() === '') continue;
+        const rn = r.trim();
+        if (seen.has(`:${rn}`)) continue;
+        seen.add(`:${rn}`);
+        rooms.push({ property_id: null, room_number: rn });
+      }
+    } else {
+      return c.json({ error: 'rooms (array of {property_id, room_number}) is required.' }, 400);
+    }
+
     const sb = makeClient();
+
+    // Enforce one KB per (property, room): reject any (property, room) already
+    // owned by a DIFFERENT KB, with a message naming it. The unique index
+    // (property_id, room_number) is the backstop if two saves race.
+    const scoped = rooms.filter((r) => r.property_id);
+    if (scoped.length > 0) {
+      const { data: existing } = await sb
+        .from('knowledge_base_rooms')
+        .select('property_id, room_number, knowledge_base_id, knowledge_bases(name)')
+        .neq('knowledge_base_id', id);
+      const owner = new Map<string, string>();
+      for (const e of (existing ?? []) as Array<{ property_id: string | null; room_number: string; knowledge_bases: { name?: string } | null }>) {
+        if (e.property_id) owner.set(`${e.property_id}:${e.room_number}`, e.knowledge_bases?.name ?? 'another knowledge base');
+      }
+      const conflicts = scoped
+        .filter((r) => owner.has(`${r.property_id}:${r.room_number}`))
+        .map((r) => ({ property_id: r.property_id, room_number: r.room_number, kb: owner.get(`${r.property_id}:${r.room_number}`) }));
+      if (conflicts.length > 0) {
+        return c.json({ error: 'One or more rooms are already assigned to another knowledge base.', conflicts }, 409);
+      }
+    }
+
     await sb.from('knowledge_base_rooms').delete().eq('knowledge_base_id', id);
-    if (roomNumbers.length > 0) {
+    if (rooms.length > 0) {
       const { error } = await sb
         .from('knowledge_base_rooms')
-        .insert(roomNumbers.map((room_number) => ({ knowledge_base_id: id, room_number })));
+        .insert(rooms.map((r) => ({ knowledge_base_id: id, property_id: r.property_id, room_number: r.room_number })));
       if (error) {
         console.error('PUT /knowledge-bases/:id/rooms failed:', error);
         return c.json({ error: 'Request failed.' }, 400);
@@ -189,11 +229,17 @@ export function buildKnowledgeBaseRoutes(makeClient: ClientFactory = serviceClie
     const kbId = typeof body.otherKbId === 'string' && body.otherKbId
       ? body.otherKbId
       : c.req.param('id');
-    const { error } = await makeClient()
+    // Scope by property when supplied: the same room_number lives at several
+    // properties, so only remove THIS property's room from that KB.
+    let del = makeClient()
       .from('knowledge_base_rooms')
       .delete()
       .eq('knowledge_base_id', kbId)
       .eq('room_number', roomNumber);
+    if (typeof body.property_id === 'string' && body.property_id) {
+      del = del.eq('property_id', body.property_id);
+    }
+    const { error } = await del;
     if (error) {
       console.error('DELETE /knowledge-bases/:id/rooms failed:', error);
       return c.json({ error: 'Request failed.' }, 400);

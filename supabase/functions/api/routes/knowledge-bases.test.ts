@@ -32,6 +32,7 @@ function fakeClient(tables: Record<string, unknown[]>, calls: Calls) {
           return term;
         },
         eq() { return builder; },
+        neq() { return builder; },
         single() { return Promise.resolve({ data: rows[0] ?? null, error: rows[0] ? null : { message: 'no rows' } }); },
         maybeSingle() { return Promise.resolve({ data: rows[0] ?? null, error: null }); },
         insert(payload: unknown) {
@@ -233,24 +234,49 @@ Deno.test('POST /knowledge-bases/:id/general {value:false} only updates this row
   assertEquals(calls.updates[0].eq[0], ['id', 'k2']);
 });
 
-Deno.test('PUT /knowledge-bases/:id/rooms deletes then inserts the new set', async () => {
+Deno.test('PUT /knowledge-bases/:id/rooms deletes then inserts the property-scoped set', async () => {
   const calls = emptyCalls();
+  // No existing knowledge_base_rooms rows -> no conflict.
   const res = await app(fakeClient({}, calls)).request('/knowledge-bases/k1/rooms', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumbers: ['101', '102'] }),
+    body: JSON.stringify({ rooms: [
+      { property_id: 'p1', room_number: '101' },
+      { property_id: 'p2', room_number: '102' },
+    ] }),
   });
   assertEquals(res.status, 200);
   assertEquals((await res.json()).ok, true);
-  // delete-then-insert: one delete on this KB, one insert of the mapped rows.
   assertEquals(calls.deletes.length, 1);
   assertEquals(calls.deletes[0].table, 'knowledge_base_rooms');
   assertEquals(calls.deletes[0].eq[0], ['knowledge_base_id', 'k1']);
   assertEquals(calls.inserts.length, 1);
   assertEquals(calls.inserts[0].payload, [
-    { knowledge_base_id: 'k1', room_number: '101' },
-    { knowledge_base_id: 'k1', room_number: '102' },
+    { knowledge_base_id: 'k1', property_id: 'p1', room_number: '101' },
+    { knowledge_base_id: 'k1', property_id: 'p2', room_number: '102' },
   ]);
+});
+
+Deno.test('PUT /knowledge-bases/:id/rooms rejects a room owned by another KB', async () => {
+  const calls = emptyCalls();
+  // Another KB already owns (p1, 101).
+  const client = fakeClient(
+    { knowledge_base_rooms: [
+      { property_id: 'p1', room_number: '101', knowledge_base_id: 'kOther', knowledge_bases: { name: 'Riviera Rooms' } },
+    ] },
+    calls,
+  );
+  const res = await app(client).request('/knowledge-bases/k1/rooms', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rooms: [{ property_id: 'p1', room_number: '101' }] }),
+  });
+  assertEquals(res.status, 409);
+  const payload = await res.json();
+  assertEquals(payload.conflicts[0].kb, 'Riviera Rooms');
+  // Nothing was deleted or inserted.
+  assertEquals(calls.deletes.length, 0);
+  assertEquals(calls.inserts.length, 0);
 });
 
 Deno.test('PUT /knowledge-bases/:id/rooms with empty list deletes only', async () => {
@@ -258,7 +284,7 @@ Deno.test('PUT /knowledge-bases/:id/rooms with empty list deletes only', async (
   const res = await app(fakeClient({}, calls)).request('/knowledge-bases/k1/rooms', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumbers: [] }),
+    body: JSON.stringify({ rooms: [] }),
   });
   assertEquals(res.status, 200);
   assertEquals(calls.deletes.length, 1);

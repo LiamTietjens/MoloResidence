@@ -52,10 +52,17 @@ export function setKbGeneral(id: string, value: boolean): Promise<{ ok: boolean 
   });
 }
 
-export function saveKbRooms(id: string, roomNumbers: string[]): Promise<{ ok: boolean }> {
+// A room assignment is property-scoped: the same room NUMBER exists at several
+// properties, so we send { property_id, room_number } pairs.
+export interface RoomRef {
+  property_id: string;
+  room_number: string;
+}
+
+export function saveKbRooms(id: string, rooms: RoomRef[]): Promise<{ ok: boolean }> {
   return apiFetch(`/knowledge-bases/${id}/rooms`, {
     method: 'PUT',
-    body: JSON.stringify({ roomNumbers }),
+    body: JSON.stringify({ rooms }),
   });
 }
 
@@ -63,10 +70,11 @@ export function removeKbRoom(
   id: string,
   roomNumber: string,
   otherKbId?: string,
+  propertyId?: string,
 ): Promise<{ ok: boolean }> {
   return apiFetch(`/knowledge-bases/${id}/rooms`, {
     method: 'DELETE',
-    body: JSON.stringify({ roomNumber, otherKbId }),
+    body: JSON.stringify({ roomNumber, otherKbId, property_id: propertyId }),
   });
 }
 

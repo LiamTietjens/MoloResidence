@@ -185,7 +185,9 @@ function DetailContent() {
       const kbJoin = r.knowledge_bases as { id: string; name: string; property_id: string } | null;
       return {
         room_number: r.room_number as string,
-        property_id: kbJoin?.property_id || '',
+        // The assignment's OWN property (post-migration); fall back to the KB's
+        // property for older rows so nothing crashes pre-backfill.
+        property_id: (r.property_id as string) || kbJoin?.property_id || '',
         knowledge_base_id: r.knowledge_base_id as string,
         kb_name: kbJoin?.name || 'Unknown',
       };
@@ -211,20 +213,13 @@ function DetailContent() {
     });
     setPropertyRooms(propRooms);
 
-    // Set initial selected rooms for THIS KB. Assignments are per room_number
-    // (knowledge_base_rooms has no property_id), and this KB's own property_id may
-    // be null (exception/general KBs), so map the assigned room_numbers onto the
-    // real property-room rows — that way the tree checkboxes (keyed by the room's
-    // actual property) match.
-    const thisKbRoomNumbers = new Set(
-      assignments
-        .filter((a) => a.knowledge_base_id === id)
-        .map((a) => a.room_number)
-    );
+    // Mark exactly THIS KB's (property, room) assignments selected — not every
+    // property that happens to reuse the same room number (the old bug that made a
+    // room look selected under every property).
     const selected = new Set<string>();
-    for (const row of propRoomData || []) {
-      if (thisKbRoomNumbers.has(row.room_number)) {
-        selected.add(`${row.property_id}:${row.room_number}`);
+    for (const a of assignments) {
+      if (a.knowledge_base_id === id && a.property_id) {
+        selected.add(`${a.property_id}:${a.room_number}`);
       }
     }
     setSelectedRooms(selected);
@@ -289,13 +284,19 @@ function DetailContent() {
       if (!id) return;
       setSaveStatus('saving');
 
-      // The same room_number can appear under multiple properties (keys are
-      // property:room), but assignments are unique per (kb, room_number) — dedupe.
-      const roomNumbers = [...new Set([...rooms].map((key) => key.split(':')[1]))];
+      // Keys are `${property_id}:${room_number}` — send property-scoped pairs so the
+      // same room number at different properties stays distinct.
+      const roomRefs = [...rooms]
+        .map((key) => {
+          const idx = key.indexOf(':');
+          return { property_id: key.slice(0, idx), room_number: key.slice(idx + 1) };
+        })
+        .filter((r) => r.property_id && r.room_number);
       try {
-        await saveKbRooms(id, roomNumbers);
-      } catch {
-        toast.error('Failed to save room assignments');
+        await saveKbRooms(id, roomRefs);
+      } catch (e) {
+        const msg = e instanceof Error && e.message ? e.message : 'Failed to save room assignments';
+        toast.error(msg);
         setSaveStatus('idle');
         return;
       }
@@ -309,8 +310,8 @@ function DetailContent() {
 
   // Remove room from another KB
   const removeFromOtherKb = useCallback(
-    async (otherKbId: string, roomNumber: string) => {
-      await removeKbRoom(otherKbId, roomNumber, otherKbId);
+    async (otherKbId: string, roomNumber: string, propertyId: string) => {
+      await removeKbRoom(otherKbId, roomNumber, otherKbId, propertyId);
     },
     []
   );
@@ -342,6 +343,7 @@ function DetailContent() {
 
     const otherAssignment = allAssignments.find(
       (a) =>
+        a.property_id === propertyId &&
         a.room_number === roomNumber &&
         a.knowledge_base_id !== id
     );
@@ -370,15 +372,17 @@ function DetailContent() {
 
     const otherAssignment = allAssignments.find(
       (a) =>
+        a.property_id === propertyId &&
         a.room_number === roomNumber &&
         a.knowledge_base_id !== id
     );
     if (otherAssignment) {
-      await removeFromOtherKb(otherAssignment.knowledge_base_id, roomNumber!);
+      await removeFromOtherKb(otherAssignment.knowledge_base_id, roomNumber!, propertyId);
       setAllAssignments((prev) =>
         prev.filter(
           (a) =>
             !(a.knowledge_base_id === otherAssignment.knowledge_base_id &&
+              a.property_id === propertyId &&
               a.room_number === roomNumber)
         )
       );
@@ -408,6 +412,7 @@ function DetailContent() {
       if (selectedRooms.has(`${propertyId}:${room}`)) continue;
       const otherAssignment = allAssignments.find(
         (a) =>
+          a.property_id === propertyId &&
           a.room_number === room &&
           a.knowledge_base_id !== id
       );
@@ -445,11 +450,12 @@ function DetailContent() {
     for (const affected of affectedRooms || []) {
       const otherAssignment = allAssignments.find(
         (a) =>
+          a.property_id === propertyId &&
           a.room_number === affected.room &&
           a.knowledge_base_id !== id
       );
       if (otherAssignment) {
-        await removeFromOtherKb(otherAssignment.knowledge_base_id, affected.room);
+        await removeFromOtherKb(otherAssignment.knowledge_base_id, affected.room, propertyId);
       }
     }
 
@@ -457,7 +463,8 @@ function DetailContent() {
     setAllAssignments((prev) =>
       prev.filter(
         (a) =>
-          !(affectedRoomNumbers.has(a.room_number) &&
+          !(a.property_id === propertyId &&
+            affectedRoomNumbers.has(a.room_number) &&
             a.knowledge_base_id !== id)
       )
     );
@@ -482,6 +489,7 @@ function DetailContent() {
   const getOtherKbAssignment = (propertyId: string, roomNumber: string): string | null => {
     const assignment = allAssignments.find(
       (a) =>
+        a.property_id === propertyId &&
         a.room_number === roomNumber &&
         a.knowledge_base_id !== id
     );
