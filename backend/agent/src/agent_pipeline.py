@@ -134,10 +134,24 @@ MAX_CALL_DURATION = 7 * 60
 FRONT_DESK_OPEN_HOUR = int(os.getenv("FRONT_DESK_OPEN_HOUR", "8"))
 FRONT_DESK_CLOSE_HOUR = int(os.getenv("FRONT_DESK_CLOSE_HOUR", "17"))
 
+# Weekdays the desk is staffed, as Python weekday() numbers (Mon=0 … Sun=6).
+# Mon-Fri by default — closed all weekend (client, 2026-08-15). Env value is a
+# comma-separated list, e.g. FRONT_DESK_DAYS=0,1,2,3,4,5 to add Saturday.
+FRONT_DESK_DAYS = frozenset(
+    int(d) for d in os.getenv("FRONT_DESK_DAYS", "0,1,2,3,4").split(",") if d.strip()
+)
+
 
 def _front_desk_is_open(now=None) -> bool:
-    """Is the front desk staffed right now, in Sopot local time?"""
+    """Is the front desk staffed right now, in Sopot local time?
+
+    Both the weekday and the hour must match. A Saturday inside 08:00-17:00 is
+    still closed — the weekend check is not a nicety, it is the difference between
+    a guest being told to email and being dialled into an empty office.
+    """
     now = now or _now_warsaw()
+    if now.weekday() not in FRONT_DESK_DAYS:
+        return False
     return FRONT_DESK_OPEN_HOUR <= now.hour < FRONT_DESK_CLOSE_HOUR
 
 
@@ -154,18 +168,39 @@ def _spoken_hour(hour: int) -> str:
 SPOKEN_EMAIL = "info at molo residence dot pl"
 
 
+_DAY_NAMES = {
+    "en": ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"),
+    "pl": ("poniedziałku", "wtorku", "środy", "czwartku", "piątku", "soboty", "niedzieli"),
+}
+
+
+def _spoken_days(language: str = "en") -> str:
+    """Describe FRONT_DESK_DAYS out loud, derived rather than hardcoded so the
+    sentence stays truthful if the days are changed via env."""
+    days = sorted(FRONT_DESK_DAYS)
+    names = _DAY_NAMES.get(language, _DAY_NAMES["en"])
+    if not days:
+        return ""
+    joiner = " to " if language == "en" else " do "
+    # Contiguous run (the normal case, Mon-Fri) reads as a range.
+    if days == list(range(days[0], days[-1] + 1)) and len(days) > 1:
+        return f"{names[days[0]]}{joiner}{names[days[-1]]}"
+    return ", ".join(names[d] for d in days)
+
+
 def _closed_message(language: str = "en") -> str:
     """What the caller hears when they ask for a human out of hours."""
     open_s, close_s = _spoken_hour(FRONT_DESK_OPEN_HOUR), _spoken_hour(FRONT_DESK_CLOSE_HOUR)
     if language == "pl":
         return (
-            f"Przepraszam, konsultanci są dostępni tylko od {FRONT_DESK_OPEN_HOUR}:00 "
-            f"do {FRONT_DESK_CLOSE_HOUR}:00. Proszę zadzwonić ponownie w tych godzinach "
-            f"albo napisać na {SPOKEN_EMAIL}."
+            f"Przepraszam, konsultanci są dostępni tylko od {_spoken_days('pl')}, "
+            f"w godzinach od {FRONT_DESK_OPEN_HOUR}:00 do {FRONT_DESK_CLOSE_HOUR}:00. "
+            f"Proszę zadzwonić ponownie w tych godzinach albo napisać na {SPOKEN_EMAIL}."
         )
     return (
-        f"Sorry, humans are only available from {open_s} to {close_s}. Please feel "
-        f"free to call back, or you can send a message to {SPOKEN_EMAIL}."
+        f"Sorry, humans are only available {_spoken_days('en')}, from {open_s} to "
+        f"{close_s}. Please feel free to call back, or you can send a message to "
+        f"{SPOKEN_EMAIL}."
     )
 
 

@@ -505,3 +505,55 @@ def test_transfer_proceeds_during_hours(monkeypatch):
 
     out = asyncio.run(ap.PipelineMoloAgent.transfer_call.__wrapped__(agent, _FakeCtx()))
     assert out == "DIALLED"
+
+
+# ── Weekday gate ─────────────────────────────────────────────────────────────
+
+def test_front_desk_is_closed_all_weekend():
+    # A Saturday inside business hours is still closed. Before the weekday gate
+    # existed, 11am Saturday dialled an empty office.
+    from datetime import datetime
+    import agent_pipeline as ap
+    mid = (ap.FRONT_DESK_OPEN_HOUR + ap.FRONT_DESK_CLOSE_HOUR) // 2
+    saturday, sunday = datetime(2026, 8, 22, mid), datetime(2026, 8, 23, mid)
+    assert saturday.weekday() == 5 and sunday.weekday() == 6   # sanity-check the dates
+    assert not ap._front_desk_is_open(saturday)
+    assert not ap._front_desk_is_open(sunday)
+
+
+def test_front_desk_is_open_every_weekday_in_hours():
+    from datetime import datetime
+    import agent_pipeline as ap
+    mid = (ap.FRONT_DESK_OPEN_HOUR + ap.FRONT_DESK_CLOSE_HOUR) // 2
+    for day in range(17, 22):                     # Mon 2026-08-17 .. Fri 2026-08-21
+        when = datetime(2026, 8, day, mid)
+        assert when.weekday() < 5
+        assert ap._front_desk_is_open(when), f"closed on weekday {when:%A}"
+
+
+def test_weekday_and_hour_are_both_required():
+    # Right day + wrong hour, and right hour + wrong day, must BOTH be closed.
+    from datetime import datetime
+    import agent_pipeline as ap
+    assert not ap._front_desk_is_open(datetime(2026, 8, 17, ap.FRONT_DESK_CLOSE_HOUR))  # Mon, too late
+    assert not ap._front_desk_is_open(datetime(2026, 8, 22, ap.FRONT_DESK_OPEN_HOUR))   # Sat, good hour
+
+
+def test_closed_message_names_the_open_days():
+    import agent_pipeline as ap
+    assert "Monday to Friday" in ap._closed_message("en")
+    assert "poniedziałku do piątku" in ap._closed_message("pl")
+
+
+def test_spoken_days_is_derived_not_hardcoded(monkeypatch):
+    # The sentence must stay truthful if FRONT_DESK_DAYS is changed via env,
+    # otherwise the agent confidently announces the wrong days.
+    import agent_pipeline as ap
+    monkeypatch.setattr(ap, "FRONT_DESK_DAYS", frozenset({0, 1, 2, 3, 4, 5}))
+    assert _days_en(ap) == "Monday to Saturday"
+    monkeypatch.setattr(ap, "FRONT_DESK_DAYS", frozenset({0, 4}))
+    assert _days_en(ap) == "Monday, Friday"
+
+
+def _days_en(ap):
+    return ap._spoken_days("en")
