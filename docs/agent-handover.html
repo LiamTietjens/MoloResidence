@@ -23,28 +23,16 @@
   body{margin:0;background:var(--bg);color:var(--fg);
        font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
        -webkit-font-smoothing:antialiased}
-  .wrap{max-width:880px;margin:0 auto;padding:56px 24px 96px}
+  .wrap{max-width:820px;margin:0 auto;padding:56px 24px 96px}
   header{border-bottom:1px solid var(--border);padding-bottom:22px;margin-bottom:36px}
   h1{font-size:25px;font-weight:600;letter-spacing:-.02em;margin:0 0 5px}
   .sub{color:var(--muted);font-size:14px;margin:0}
   h2{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
-     color:var(--muted);margin:52px 0 16px}
-  h3{font-size:15px;font-weight:600;margin:24px 0 8px}
+     color:var(--muted);margin:54px 0 18px}
   p{margin:0 0 12px}
-  ul{margin:0 0 12px;padding-left:20px} li{margin:5px 0}
-  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--subtle);
-       border:1px solid var(--border);border-radius:4px;padding:1px 5px}
-  pre{background:var(--subtle);border:1px solid var(--border);border-radius:8px;
-      padding:14px 16px;overflow-x:auto;margin:0 0 14px}
-  pre code{background:none;border:none;padding:0;font-size:12.5px}
-  .note{border-radius:10px;padding:18px 20px;margin:0 0 16px;border:1px solid}
-  .note :last-child{margin-bottom:0}
-  .amber{background:var(--amber-bg);border-color:var(--amber-br);color:var(--amber-fg)}
-  .green{background:var(--green-bg);border-color:var(--green-br);color:var(--green-fg)}
-  .blue{background:var(--blue-bg);border-color:var(--blue-br);color:var(--blue-fg)}
-  .card{border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin:0 0 14px}
+  b{font-weight:600}
 
-  /* ── ask list ── */
+  /* ── questions ── */
   .ask{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:0 0 16px}
   .ask-row{display:flex;gap:14px;padding:16px 20px;border-bottom:1px solid var(--border)}
   .ask-row:last-child{border-bottom:none}
@@ -56,47 +44,53 @@
   .ask-l{margin:6px 0 8px;padding-left:18px}
   .ask-l li{margin:2px 0;font-size:14px}
 
-  /* ── simple KB diagram ── */
-  .dia{border:1px solid var(--border);border-radius:10px;background:var(--subtle);
-       padding:28px 24px;margin:0 0 16px}
-  .node{border:1px solid var(--border);background:var(--bg);border-radius:9px;
-        padding:14px 18px;text-align:center}
-  .node .nt{font-weight:600;font-size:14.5px}
-  .node .nd{color:var(--muted);font-size:13px;margin-top:3px}
-  .arrow{text-align:center;color:var(--muted);font-size:19px;line-height:1;padding:9px 0}
-  .kbset{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:11px}
-  .kb{border-radius:7px;padding:8px 14px;font-size:13px;font-weight:500;border:1px solid}
+  /* ── tree ── */
+  .tree{border:1px solid var(--border);border-radius:10px;background:var(--subtle);
+        padding:26px 24px;margin:0 0 14px}
+  .t-root{border:1px solid var(--border);background:var(--bg);border-radius:9px;
+          padding:13px 16px;text-align:center;font-weight:600;font-size:14.5px}
+  .t-kbs{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:9px}
+  .kb{border-radius:6px;padding:5px 11px;font-size:12.5px;font-weight:500;border:1px solid;
+      white-space:nowrap}
   .kb-gen{background:var(--blue-bg);border-color:var(--blue-br);color:var(--blue-fg)}
   .kb-room{background:var(--green-bg);border-color:var(--green-br);color:var(--green-fg)}
+  .t-split{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:0}
+  .t-stem{height:16px;border-left:1px solid var(--border);margin:0 auto;width:1px}
+  .t-bar{height:1px;background:var(--border);margin:0 25%}
+  .t-legs{display:grid;grid-template-columns:1fr 1fr}
+  .t-leg{height:16px;border-left:1px solid var(--border);width:1px;margin:0 auto}
+  .t-branch{border:1px solid var(--border);background:var(--bg);border-radius:9px;padding:14px 16px}
+  .t-when{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+          color:var(--muted);margin-bottom:6px}
+  .t-say{font-size:13.5px;margin-bottom:8px}
+  .t-arr{color:var(--muted);font-size:15px;line-height:1;margin:6px 0}
+  .t-ans{font-size:13.5px;color:var(--muted)}
+  .t-ans i{color:var(--fg);font-style:normal}
+  @media (max-width:620px){ .t-split{grid-template-columns:1fr} .t-bar{display:none} .t-legs{grid-template-columns:1fr} }
 
-  /* ── test flow ── */
-  .flow{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:0 0 18px}
-  .flow-h{padding:13px 20px;background:var(--subtle);border-bottom:1px solid var(--border);
-          font-weight:600;font-size:14.5px}
-  .flow-b{padding:8px 20px 18px}
-  .fl{display:grid;grid-template-columns:64px 1fr;gap:12px;padding:9px 0;align-items:start}
-  .fl+.fl{border-top:1px dashed var(--border)}
-  .lbl{font:600 10.5px/1.7 ui-sans-serif,system-ui;letter-spacing:.06em;text-transform:uppercase;
-       color:var(--muted);padding-top:2px}
-  .lbl.you{color:var(--fg)}
-  .chk{margin-top:12px;padding:12px 14px;border-radius:8px;font-size:13.5px;
-       background:var(--green-bg);border:1px solid var(--green-br);color:var(--green-fg)}
-  .chk b{font-weight:600}
-  .fail{margin-top:8px;padding:12px 14px;border-radius:8px;font-size:13.5px;
-        background:var(--amber-bg);border:1px solid var(--amber-br);color:var(--amber-fg)}
-  table{width:100%;border-collapse:collapse;margin:0 0 14px;font-size:14px}
-  th{text-align:left;font:600 11px/1.6 ui-sans-serif,system-ui;letter-spacing:.06em;
-     text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);
-     padding:0 12px 8px 0}
-  td{padding:9px 12px 9px 0;border-bottom:1px solid var(--border);vertical-align:top}
-  tr:last-child td{border-bottom:none}
-  .scroll{overflow-x:auto}
+  /* ── test flowcharts ── */
+  .fc{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:0 0 16px}
+  .fc-h{padding:12px 18px;background:var(--subtle);border-bottom:1px solid var(--border);
+        font-weight:600;font-size:14.5px}
+  .fc-b{padding:18px}
+  .n{border:1px solid var(--border);border-radius:8px;padding:11px 14px;font-size:14px}
+  .n.you{background:var(--bg)}
+  .n.ai{background:var(--subtle);color:var(--fg)}
+  .n .who{font:600 10px/1.6 ui-sans-serif,system-ui;letter-spacing:.07em;
+          text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .down{text-align:center;color:var(--muted);font-size:15px;line-height:1;padding:6px 0}
+  .pass{background:var(--green-bg);border:1px solid var(--green-br);color:var(--green-fg);
+        border-radius:8px;padding:11px 14px;font-size:13.5px;margin-top:4px}
+  .warn{background:var(--amber-bg);border:1px solid var(--amber-br);color:var(--amber-fg);
+        border-radius:8px;padding:11px 14px;font-size:13.5px;margin-top:8px}
+
+  .note{border-radius:10px;padding:16px 18px;margin:0 0 16px;border:1px solid}
+  .note :last-child{margin-bottom:0}
+  .amber{background:var(--amber-bg);border-color:var(--amber-br);color:var(--amber-fg)}
+  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--subtle);
+       border:1px solid var(--border);border-radius:4px;padding:1px 5px}
   .small{font-size:13px} .muted{color:var(--muted)}
-  hr{border:none;border-top:1px solid var(--border);margin:40px 0}
-  @media (max-width:600px){
-    .wrap{padding:32px 18px 64px}
-    .fl{grid-template-columns:1fr;gap:2px}
-  }
+  @media (max-width:600px){ .wrap{padding:32px 18px 64px} }
 </style>
 </head>
 <body>
@@ -107,7 +101,7 @@
   <p class="sub">Test phone: +48 732 128 903 · 15 August 2026</p>
 </header>
 
-<!-- ══════════ WHAT WE NEED FROM PIOTR ══════════ -->
+<!-- ══════════ QUESTIONS ══════════ -->
 <h2>Needed from Piotr</h2>
 
 <div class="ask">
@@ -152,51 +146,66 @@
 <!-- ══════════ HOW IT WORKS ══════════ -->
 <h2>How the AI uses knowledge bases</h2>
 
-<div class="dia">
-  <div class="node">
-    <div class="nt">Call starts</div>
-    <div class="nd">The AI has the general knowledge base</div>
-    <div class="kbset"><span class="kb kb-gen">General KB</span></div>
+<div class="tree">
+  <div class="t-root">
+    Call starts
+    <div class="t-kbs"><span class="kb kb-gen">General knowledge base</span></div>
   </div>
 
-  <div class="arrow">↓</div>
+  <div class="t-stem"></div>
+  <div class="t-bar"></div>
+  <div class="t-legs"><div class="t-leg"></div><div class="t-leg"></div></div>
 
-  <div class="node">
-    <div class="nt">Caller asks something about their room</div>
-    <div class="nd">“What's the wifi password?”</div>
+  <div class="t-split">
+
+    <div class="t-branch">
+      <div class="t-when">General question</div>
+      <div class="t-say">“What is Sopot known for?”</div>
+      <div class="t-arr">↓</div>
+      <div class="t-ans">Answered straight away from the general knowledge base —
+      <i>“the long wooden pier, the beach, and the Forest Opera.”</i></div>
+    </div>
+
+    <div class="t-branch">
+      <div class="t-when">Question about their room</div>
+      <div class="t-say">“What's the wifi password?”</div>
+      <div class="t-arr">↓</div>
+      <div class="t-ans">The AI asks for their <b>room number and address</b>, because several
+      properties have a room 4.</div>
+    </div>
+
   </div>
 
-  <div class="arrow">↓</div>
-
-  <div class="node">
-    <div class="nt">AI asks for the room number and address</div>
-    <div class="nd">Needed because several properties have a room 4</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr">
+    <div></div>
+    <div class="t-leg" style="height:18px"></div>
   </div>
 
-  <div class="arrow">↓</div>
-
-  <div class="node">
-    <div class="nt">Guest identified — room knowledge base unlocked</div>
-    <div class="nd">The AI now has <b>both</b></div>
-    <div class="kbset">
-      <span class="kb kb-room">Their room's KB</span>
-      <span class="kb kb-gen">General KB</span>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div></div>
+    <div class="t-root">
+      Guest identified
+      <div class="t-kbs">
+        <span class="kb kb-room">Their room's KB</span>
+        <span class="kb kb-gen">General KB</span>
+      </div>
+      <div class="t-ans" style="margin-top:9px;text-align:left">The AI now has <b>both</b>, so it
+      can answer their wifi <i>and</i> anything general for the rest of the call.</div>
     </div>
   </div>
 </div>
 
-<div class="note green">
-  <p><b>That last step is what we fixed on 15 August.</b> Before, unlocking the room knowledge base
-  <b>replaced</b> the general one — so a guest could get their wifi password, then ask something
-  general like “what's Sopot known for?” and be told we don't have that. Now it keeps both, and the
-  room's own details always win if the two ever disagree.</p>
-</div>
+<p class="small muted">The general knowledge base holds portfolio-wide things: all the addresses,
+room types, which sites you can book on, and information about Sopot. Each property's knowledge base
+holds its own wifi, door code, check-in time and parking. If the two ever disagree, the room's own
+details win.</p>
 
 <!-- ══════════ TESTING ══════════ -->
 <h2>How to test it</h2>
 
 <p>Call <b>+48 732 128 903</b>. It opens with:
-<i>“Hi, welcome to Molo Residence. My name is Tomasz and I'm merely an AI agent…”</i></p>
+<i>“Hi, welcome to Molo Residence. My name is Tomasz, I'm an AI. This call is being transcribed for
+quality purposes. How can I help?”</i></p>
 
 <div class="note amber">
   <p><b>Use a real mobile, not a virtual number.</b> Calls from Hushed/VoIP numbers have already
@@ -204,171 +213,99 @@
   the AI look broken.</p>
 </div>
 
-<div class="flow">
-  <div class="flow-h">Test 1 · Room-specific answer</div>
-  <div class="flow-b">
-    <div class="fl"><div class="lbl you">You say</div><div>“I'm a guest, what's the wifi password?”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Asks for your room number.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“Room 3.”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Repeats “room 3” back, asks you to confirm.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“Yes.”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Asks <b>which address</b> — room 3 exists at three properties.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“Chopina 40/8.”</div></div>
-    <div class="chk">✓ <b>Expect:</b> network <b>Riviera Rooms</b>, password <b>Chopina40m8</b></div>
-    <div class="fail">✗ <b>Problem if:</b> it never asks which address, or gives a different property's wifi</div>
+<div class="fc">
+  <div class="fc-h">Test 1 · Room wifi</div>
+  <div class="fc-b">
+    <div class="n you"><div class="who">You say</div>“I'm a guest, what's the wifi password?”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Asks for your room number</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Room 3”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Repeats it back, then asks <b>which address</b></div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Chopina 40/8”</div>
+    <div class="down">↓</div>
+    <div class="pass">✓ Network <b>Riviera Rooms</b>, password <b>Chopina40m8</b></div>
+    <div class="warn">✗ Problem if it never asks which address, or gives another property's wifi</div>
   </div>
 </div>
 
-<div class="flow">
-  <div class="flow-h">Test 2 · Does it still know the general info? <span class="muted small">(the 15 Aug fix)</span></div>
-  <div class="flow-b">
-    <div class="fl"><div class="lbl you">You say</div><div>“I'm in room 5 at Pułaskiego 6a, what's the wifi?”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Network <b>MoloResidence</b>, password <b>molo1234</b>.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“And what is Sopot known for?”</div></div>
-    <div class="chk">✓ <b>Expect:</b> the wooden pier, the beach, the Forest Opera<br>
-      Also try “which properties do you have?” or “can I book direct?”</div>
-    <div class="fail">✗ <b>Problem if:</b> it says it doesn't have that information — that's the old bug returning</div>
+<div class="fc">
+  <div class="fc-h">Test 2 · Still knows the general info</div>
+  <div class="fc-b">
+    <div class="n you"><div class="who">You say</div>“I'm in room 5 at Pułaskiego 6a, what's the wifi?”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div><b>MoloResidence</b> / <b>molo1234</b></div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“And what is Sopot known for?”</div>
+    <div class="down">↓</div>
+    <div class="pass">✓ The wooden pier, the beach, the Forest Opera</div>
+    <div class="warn">✗ Problem if it says it doesn't have that information</div>
   </div>
 </div>
 
-<div class="flow">
-  <div class="flow-h">Test 3 · Booking + SMS link</div>
-  <div class="flow-b">
-    <div class="fl"><div class="lbl you">You say</div><div>“I'd like to book a stay.”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Asks check-in, check-out, adults, children — one at a time.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“Tomorrow, two nights, two adults, no children.”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Repeats it all back, waits for a yes.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“Yes.” → then “Yes please” to the booking link.</div></div>
-    <div class="chk">✓ <b>Expect:</b> a booking link by SMS to the number you called from</div>
-    <div class="fail">✗ <b>Problem if:</b> it says “I'll send that booking link over to you now”
-      <b>twice</b> — a fix shipped 15 Aug, please confirm it's gone</div>
+<div class="fc">
+  <div class="fc-h">Test 3 · Booking link by SMS</div>
+  <div class="fc-b">
+    <div class="n you"><div class="who">You say</div>“I'd like to book a stay”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Asks dates, adults, children — one at a time</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Tomorrow, two nights, two adults, no children”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Repeats it all back, waits for a yes</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Yes” → then “Yes please” to the link</div>
+    <div class="down">↓</div>
+    <div class="pass">✓ Booking link arrives by SMS on the number you called from</div>
+    <div class="warn">✗ Problem if it says “I'll send that booking link over” <b>twice</b></div>
   </div>
 </div>
 
-<div class="flow">
-  <div class="flow-h">Test 4 · Maintenance ticket</div>
-  <div class="flow-b">
-    <div class="fl"><div class="lbl you">You say</div><div>Give a room number and address, then “the heating isn't working.”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Tries to troubleshoot first, then offers to raise a ticket.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“Yes please.”</div></div>
-    <div class="chk">✓ <b>Expect:</b> a new ticket in the dashboard under Maintenance</div>
-    <div class="fail">✗ <b>Problem if:</b> it raises a ticket before knowing the room</div>
+<div class="fc">
+  <div class="fc-h">Test 4 · Maintenance ticket</div>
+  <div class="fc-b">
+    <div class="n you"><div class="who">You say</div>Give a room number and address, then “the heating isn't working”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Tries to troubleshoot, then offers to raise a ticket</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Yes please”</div>
+    <div class="down">↓</div>
+    <div class="pass">✓ A new ticket appears in the dashboard under Maintenance</div>
+    <div class="warn">✗ Problem if it raises a ticket before knowing the room</div>
   </div>
 </div>
 
-<div class="flow">
-  <div class="flow-h">Test 5 · Transfer to a human <span class="muted small">(first real test — see question 1)</span></div>
-  <div class="flow-b">
-    <div class="fl"><div class="lbl you">You say</div><div>“Can I speak to a human please?”</div></div>
-    <div class="fl"><div class="lbl">AI says</div><div>Asks if it's OK to transfer you, and waits.</div></div>
-    <div class="fl"><div class="lbl you">You say</div><div>“Yes.”</div></div>
-    <div class="chk">✓ <b>Mon–Fri 8am–5pm:</b> it dials +48 666 956 956<br>
-      ✓ <b>Any other time:</b> “Sorry, humans are only available Monday to Friday, from 8 AM to 5 PM…”</div>
-    <div class="fail">✗ <b>Note:</b> transfers had <b>never</b> worked before 15 Aug — the number was
-      missing from the settings. This is the first time it's actually been tried.</div>
+<div class="fc">
+  <div class="fc-h">Test 5 · Transfer to a human</div>
+  <div class="fc-b">
+    <div class="n you"><div class="who">You say</div>“Can I speak to a human please?”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Asks if it's OK to transfer you, and waits</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Yes”</div>
+    <div class="down">↓</div>
+    <div class="pass">✓ Mon–Fri 8am–5pm → it dials +48 666 956 956<br>
+      ✓ Any other time → “Sorry, humans are only available Monday to Friday, from 8 AM to 5 PM…”</div>
+    <div class="warn">✗ This is the first real test — transfers had never worked before 15 Aug,
+      the number was missing from the settings</div>
   </div>
 </div>
 
-<div class="flow">
-  <div class="flow-h">Test 6 · Polish</div>
-  <div class="flow-b">
-    <div class="fl"><div class="lbl you">You say</div><div>Start in English, then switch to Polish mid-call.</div></div>
-    <div class="chk">✓ <b>Expect:</b> it answers in Polish, and the voice switches accent too</div>
-    <div class="fail">✗ <b>Known issue:</b> occasionally a short English phrase is mis-heard as
-      Russian and it replies in the wrong language. This is the transcription service, not the AI.</div>
+<div class="fc">
+  <div class="fc-h">Test 6 · Polish</div>
+  <div class="fc-b">
+    <div class="n you"><div class="who">You say</div>Start in English, then switch to Polish mid-call</div>
+    <div class="down">↓</div>
+    <div class="pass">✓ It answers in Polish, and the voice switches accent too</div>
+    <div class="warn">✗ Occasionally a short English phrase is mis-heard as Russian and it replies
+      in the wrong language — that's the transcription service, not the AI</div>
   </div>
 </div>
 
-<!-- ══════════ REFERENCE ══════════ -->
-<h2>Reference — what's in each knowledge base</h2>
-
-<div class="scroll">
-<table>
-  <thead><tr><th>Property</th><th>Rooms</th><th>Check-in</th><th>Wi-Fi</th><th>Door code</th></tr></thead>
-  <tbody>
-    <tr><td>Hotel Molo Residence<br><span class="small muted">Pułaskiego 6a</span></td><td>2–10</td><td>14:00</td><td>MoloResidence / molo1234</td><td>1234#</td></tr>
-    <tr><td>Molo Residence Apartments<br><span class="small muted">Pułaskiego 10b</span></td><td>101–304</td><td>15:00</td><td>MoloResidence Apartments / molo1234</td><td>1key1111</td></tr>
-    <tr><td>Riviera Residence Apartments<br><span class="small muted">Pułaskiego 10b</span></td><td>105–402</td><td>16:00 <span class="small muted">(out 12:00)</span></td><td><b style="color:var(--amber-fg)">missing — 402 only</b></td><td>1key1111</td></tr>
-    <tr><td>Riviera Rooms<br><span class="small muted">Chopina 40/8</span></td><td>1–7</td><td>14:00</td><td>Riviera Rooms / Chopina40m8</td><td>8key8888</td></tr>
-    <tr><td>Boho Rooms<br><span class="small muted">Pułaskiego 6/2</span></td><td>1–5</td><td>15:00</td><td>Boho Rooms / boho1234</td><td>2key2222</td></tr>
-    <tr><td>Boho Apartment<br><span class="small muted">Pułaskiego 6/3a</span></td><td>3a</td><td>15:00</td><td>Boho Apartament / Boho123456</td><td>2key2222</td></tr>
-    <tr><td>Apartament Molo Superior<br><span class="small muted">Pułaskiego 17/4</span></td><td>4</td><td>15:00</td><td>UPC1525080 / cj66utkhykQG</td><td>4key4444</td></tr>
-    <tr><td>Apartament Molo<br><span class="small muted">Chmielewskiego 7/5</span></td><td>5</td><td>15:00</td><td>UPC1615937 / HPDBLXFH</td><td>5key5555</td></tr>
-  </tbody>
-</table>
-</div>
-
-<hr>
-
-<!-- ══════════ DEV ══════════ -->
-<h2>For the developer</h2>
-
-<h3>What changed in the knowledge bases on 15 Aug</h3>
-<ul>
-  <li><b>Removed three test lines</b> from the general KB — carpets, skateboards, and
-      <code>loud hours : 3am to 3pm</code> (which read as permission to be loud at 3am).</li>
-  <li><b>Removed 45 stale room labels</b> from the Hotel Molo Residence KB — channel-manager strings
-      like <code>34 Boho (1)</code>. <b>These were harmless</b>: guest matching uses a different
-      table (<code>property_rooms</code>), which was always correct. Nobody would say those out
-      loud, so they were never reached. Tidy-up, not a bug fix.</li>
-  <li><b>Fixed the real bug:</b> the general KB was being discarded once a guest was identified.</li>
-  <li>Backup of everything before the change:
-      <code>backend/supabase/kb-backup-2026-08-15.json</code></li>
-</ul>
-
-<h3>One room can't be in two knowledge bases — confirmed</h3>
-<p>There's a unique index on <code>(property_id, room_number)</code>. Verified by trying an actual
-duplicate insert, which was rejected. Different properties can each have their own room 4 — that's
-allowed and correct.</p>
-
-<h3>The one gap, and how to close it</h3>
-<p>That protection only works when <code>property_id</code> is filled in. The column allows
-<code>NULL</code>, and Postgres treats NULLs as all-different in a unique index — so two rows with
-no property could hold the same room number. The dashboard always sends a property, so this can't
-happen from the UI, and there are zero such rows today. To close it permanently:</p>
-<pre><code>-- 1. confirm nothing would break (expect 0)
-select count(*) from knowledge_base_rooms where property_id is null;
-
--- 2. require a property from now on
-alter table knowledge_base_rooms
-  alter column property_id set not null;</code></pre>
-<p>After that, the old API shape that omitted a property will fail loudly instead of quietly
-creating a duplicate. Worth also deleting that legacy <code>roomNumbers</code> branch in
-<code>backend/supabase/functions/api/routes/knowledge-bases.ts</code>.</p>
-
-<h3>Deploying</h3>
-<p><b>Agent</b> ships from your local folder — git isn't involved. Root <code>Dockerfile</code> and
-<code>livekit.toml</code> are stale, so swap the pipeline versions in first:</p>
-<pre><code>cd backend/agent
-cp pipeline/Dockerfile Dockerfile
-cp pipeline/livekit.toml livekit.toml
-lk agent deploy --project molo-residence
-git checkout Dockerfile livekit.toml</code></pre>
-<p><b>Dashboard</b> builds from GitHub <code>main</code> via Render — it must be committed and
-pushed. Root directory is <code>frontend</code>.</p>
-
-<div class="note amber">
-  <p><b>Still to deploy:</b> the <i>delete transcript</i> button is built and pushed, but the API
-  route behind it isn't live yet. Run <code>supabase functions deploy api</code> from
-  <code>backend/supabase/</code>, or the button will error.</p>
-</div>
-
-<h3>Things to know</h3>
-<ul>
-  <li><b>Never edit <code>agent.py</code></b> — it's imported and treated as read-only. Everything
-      lives in <code>agent_pipeline.py</code>; the prompt is in <code>pipeline_prompt.py</code>.</li>
-  <li><b>A bad voice ID fails silently</b> at first speech, not at startup — the caller hears
-      nothing for the whole call. This took the line down twice. There's now a fallback voice.</li>
-  <li><b>LiveKit only serves each provider's default voices</b> — a voice picked from ElevenLabs'
-      community library will not work.</li>
-  <li><b>"SMS sent" means queued</b>, not delivered. There's no delivery confirmation.</li>
-  <li><b>Editing a KB in the dashboard</b> takes effect on the next call. No deploy needed.</li>
-  <li>Tests — agent: <code>uv sync --python 3.12 &amp;&amp; uv run pytest</code> (87 passing).
-      Frontend: <code>NODE_OPTIONS="--no-experimental-webstorage" npm test</code> (34 passing).</li>
-</ul>
-
-<p class="small muted" style="margin-top:36px">Agent <code>CA_9DeKbNqCaYHQ</code> ·
-github.com/LiamTietjens/MoloResidence · moloresidence.onrender.com</p>
+<p class="small muted" style="margin-top:40px">Any knowledge base you edit in the dashboard takes
+effect on the very next call — nothing needs redeploying.</p>
 
 </div>
 </body>

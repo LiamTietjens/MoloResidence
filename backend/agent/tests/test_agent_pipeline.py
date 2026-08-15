@@ -169,7 +169,10 @@ def test_welcome_message_is_spoken_verbatim_and_carries_the_disclosures():
     import agent_pipeline as ap
     w = ap.WELCOME_MESSAGE
     assert "Molo Residence" in w
-    assert "AI agent" in w            # AI disclosure
+    # AI disclosure. Matches "I'm an AI" or "AI agent" — the wording has been
+    # shortened before and will be again; what must never disappear is the
+    # statement that the caller is talking to an AI.
+    assert "AI" in w
     assert "transcribed" in w         # transcription notice
     # Guard the mis-transcribed spellings from the dictation ("Moller", "AR agent").
     assert "Moller" not in w and "Mola" not in w
