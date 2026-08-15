@@ -46,9 +46,9 @@ PIPELINE_INSTRUCTIONS_TEXT = PIPELINE_INSTRUCTIONS
 # for the rest of the call once it hears the caller (see the Tone & Style section
 # of the prompt).
 WELCOME_MESSAGE = (
-    "Hi, welcome to Molo Residence. I'm merely an AI agent. This call is being "
-    "transcribed for quality purposes. Are you an existing guest or looking to "
-    "book a stay?"
+    "Hi, welcome to Molo Residence. My name is Tomasz and I'm merely an AI agent. "
+    "This call is being transcribed for quality purposes. Are you an existing "
+    "guest or looking to book a stay?"
 )
 
 # Language the FILLER WORDING defaults to before the caller has said anything.

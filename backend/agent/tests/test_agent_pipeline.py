@@ -679,5 +679,10 @@ def test_agent_is_named_tomasz():
     # (unused) GREETING/INSTRUCTIONS and must not be edited — the pipeline prompt
     # is the one that reaches the model.
     import pipeline_prompt as pp
+    import agent_pipeline as ap
     assert "**Tomasz**" in pp.PIPELINE_INSTRUCTIONS
     assert "Mili" not in pp.PIPELINE_INSTRUCTIONS
+    # The greeting is spoken verbatim, so the name has to be IN it — the prompt
+    # alone means the agent only says its name if the caller asks.
+    assert "Tomasz" in ap.WELCOME_MESSAGE
+    assert "Mili" not in ap.WELCOME_MESSAGE
