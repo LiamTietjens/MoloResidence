@@ -13,14 +13,19 @@ import os
 import time
 
 from livekit import agents, rtc
-from livekit.agents import (AgentServer, AgentSession, room_io, inference,
+from livekit.agents import (AgentServer, AgentSession, room_io, inference, tts as tts_api,
                             BackgroundAudioPlayer, BuiltinAudioClip, AudioConfig)
 from livekit.api import LiveKitAPI
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 # Import from the live agent — NEVER edit agent.py.
-from agent import MoloAgent, GREETING, _now_warsaw, _now_iso  # noqa
+# NOTE: agent.py's GREETING is deliberately NOT imported any more. It is an
+# *instruction* the model improvises a greeting from, so the caller heard slightly
+# different wording every call. The client requires a fixed, verbatim opening that
+# includes an AI disclosure and a transcription/data notice, so the pipeline now
+# speaks WELCOME_MESSAGE below instead. agent.py itself is untouched.
+from agent import MoloAgent, _now_warsaw, _now_iso  # noqa
 import molo_supabase as db
 from pipeline_prompt import PIPELINE_INSTRUCTIONS, render_instructions
 from thinking_filter import strip_thinking_tokens
@@ -30,25 +35,56 @@ logger = logging.getLogger("molo-agent-pipeline")
 PIPELINE_AGENT_NAME = "molo-gemma"
 PIPELINE_INSTRUCTIONS_TEXT = PIPELINE_INSTRUCTIONS
 
+# Fixed opening line, spoken VERBATIM at the start of every call (client-specified
+# 2026-08-15). This is deliberately not model-generated: it carries an AI
+# disclosure and a transcription / data-deletion notice, so the wording must be
+# identical on every call and cannot be left to the model to paraphrase.
+#
+# Always English. The agent speaks first, before the caller has said anything, so
+# there is no language signal to adapt to yet; the model still switches to Polish
+# for the rest of the call once it hears the caller (see the Tone & Style section
+# of the prompt).
+WELCOME_MESSAGE = (
+    "Hi, thank you for calling Molo Residence. My name is Mili and I'm an AI agent. "
+    "This call is transcribed for quality purposes — you may hang up at any point, "
+    "or contact info@moloresidence.pl to delete your data."
+)
+
 # Model config — all env-tunable so they can be changed without a rebuild.
-# STT: Cartesia Ink-Whisper — Whisper-based, AUTO-detects language (handles EN+PL
-# in one stream) and is robust on plain English words (Nova-3 mis-heard "carpet"
-# as "car get"/"car page"). Whisper needs no language hint, so STT_LANGUAGE is
-# empty by default and only passed when set. (This is Cartesia's speech-to-TEXT,
-# unrelated to the Cartesia TTS voice the client moved off; the voice is ElevenLabs.)
-# To A/B back to Deepgram: STT_MODEL=deepgram/nova-3 STT_LANGUAGE=multi.
-STT_MODEL = os.getenv("STT_MODEL", "cartesia/ink-whisper")
-STT_LANGUAGE = os.getenv("STT_LANGUAGE", "")
+# STT: Deepgram Nova-3 in MULTILINGUAL mode (client requirement 2026-08-15).
+# language="multi" makes Nova-3 detect the language per speech segment, so a
+# caller switching EN<->PL mid-call is transcribed correctly in one stream.
+# Multilingual is billed at a different rate to monolingual — see LiveKit's
+# inference pricing. To A/B back to Whisper: STT_MODEL=cartesia/ink-whisper
+# STT_LANGUAGE= (empty; Whisper auto-detects and rejects a language hint).
+STT_MODEL = os.getenv("STT_MODEL", "deepgram/nova-3")
+STT_LANGUAGE = os.getenv("STT_LANGUAGE", "multi")
 LLM_MODEL = os.getenv("LLM_MODEL", "google/gemma-4-31b-it")
-# TTS: Cartesia Sonic-3.5. MIGRATED OFF ElevenLabs — every ElevenLabs model on the
-# LiveKit Inference gateway (flash/turbo/multilingual_v2/v3) is deprecated and
-# RETIRES 2026-08-31, so eleven_multilingual_v2 would simply stop producing audio.
-# Sonic-3.5 covers 39 languages incl. Polish and has the lowest time-to-first-byte
-# on the gateway, which also helps the end-of-turn feel. The voice is a Cartesia
-# voice id — "Katie" (female, natural), the voice this agent used before the
-# ElevenLabs detour (commit 16b6b53). Swap via CARTESIA_VOICE_ID.
+
+# TTS: Cartesia Sonic-3.5 on the client's chosen voice, rendering Polish.
+#
+# This exact triple (sonic-3.5 / 43e52207-… / Polish) was VERIFIED WORKING by the
+# client in the LiveKit Agent Builder on 2026-08-15 — it synthesized audio in the
+# live preview. Keep it in sync with that screen; it is the known-good reference.
+# Note the client asked for "Sonic 3" in writing but their verified config is
+# Sonic 3.5, so 3.5 is what ships.
+#
+# Moved off ElevenLabs entirely. Both ElevenLabs voice ids the client picked came
+# from the *voice library* — community voices, which the LiveKit Inference gateway
+# cannot resolve (it serves only the default-voice set). That took the phone line
+# silent for two calls; see the note in _build_tts. Cartesia default voices like
+# this one resolve through the gateway fine — the limitation is specific to
+# community/cloned voices, not to Inference generally.
 TTS_MODEL = os.getenv("TTS_MODEL", "cartesia/sonic-3.5")
-TTS_VOICE = os.getenv("CARTESIA_VOICE_ID", "f786b574-daa5-4673-aa0c-cbe3e8534c02")
+TTS_VOICE = os.getenv("CARTESIA_VOICE_ID", "43e52207-96fc-4e01-aaf8-cae317e43fdb")
+TTS_LANGUAGE = os.getenv("TTS_LANGUAGE", "pl")
+
+# Known-good FLOOR on a DIFFERENT voice: Cartesia's stock "Katie", the voice the
+# agent ran on before today and therefore proven to synthesize. Its entire job is
+# to still speak if the primary voice id ever stops resolving — the exact failure
+# that took the line down earlier today. Never point it at the primary's voice.
+TTS_FLOOR_MODEL = os.getenv("TTS_FLOOR_MODEL", "cartesia/sonic-3.5")
+TTS_FLOOR_VOICE = os.getenv("TTS_FLOOR_VOICE", "f786b574-daa5-4673-aa0c-cbe3e8534c02")
 
 # Cartesia generation config — forwarded to the LiveKit Inference gateway via
 # inference.TTS(extra_kwargs=...). NOTE this is a COMPLETELY DIFFERENT parameter
@@ -88,19 +124,76 @@ def _stt_kwargs() -> dict:
     return kw
 
 
-def build_pipeline_session() -> AgentSession:
-    """The one real difference from agent.py: a pipeline session instead of the
-    native-audio RealtimeModel. VAD + turn detection + interruption knobs match
-    agent.py — but here they are ACTIVE (they were inert with native audio)."""
-    tts_kwargs = {"model": TTS_MODEL}
-    if TTS_VOICE:
-        tts_kwargs["voice"] = TTS_VOICE
+def _cartesia_tts(model: str, voice: str, language: str | None = None):
+    """One Cartesia leg via the LiveKit Inference gateway."""
+    tts_kwargs = {"model": model}
+    if voice:
+        tts_kwargs["voice"] = voice
+    if language:
+        tts_kwargs["language"] = language
     # Cartesia generation config rides through the LiveKit Inference gateway as
     # extra_kwargs (inference.TTS forwards this dict verbatim).
     tts_kwargs["extra_kwargs"] = {
         "speed": TTS_SPEED,
         "emotion": TTS_EMOTION,
     }
+    return inference.TTS(**tts_kwargs)
+
+
+def _build_tts():
+    """Ordered TTS preferences wrapped in a FallbackAdapter.
+
+    1. Cartesia Sonic-3, the client's voice, rendering Polish.
+    2. Cartesia Sonic-3.5 on stock "Katie" — the known-good floor, so the phone
+       still gets a voice if the primary voice id can't be resolved.
+
+    Why FallbackAdapter and not a try/except ladder: an unusable voice does NOT
+    fail at construction. inference.TTS builds fine and only errors on the first
+    real synthesis, per utterance —
+
+        BAD_REQUEST: "A voice with voice_id ... does not exist." retryable:false
+
+    A construction-time ladder therefore never fires, and the caller just hears
+    silence for the whole call (observed live 2026-08-15 on an ElevenLabs
+    community voice: two calls, both silent until the caller hung up).
+    FallbackAdapter fails over at SYNTHESIS time, the only place this class of
+    error surfaces. The two legs must stay on DIFFERENT voice ids, or the floor
+    fails for exactly the same reason the primary did.
+    """
+    candidates = []
+
+    try:
+        candidates.append(_cartesia_tts(TTS_MODEL, TTS_VOICE, TTS_LANGUAGE))
+        logger.info("TTS candidate 1: Cartesia %s voice=%s language=%s",
+                    TTS_MODEL, TTS_VOICE, TTS_LANGUAGE)
+    except Exception as exc:  # noqa: BLE001 — never let TTS setup kill the worker
+        logger.error("primary Cartesia TTS unavailable: %s", exc)
+
+    try:
+        candidates.append(_cartesia_tts(TTS_FLOOR_MODEL, TTS_FLOOR_VOICE, TTS_LANGUAGE))
+        logger.info("TTS candidate %d: Cartesia %s voice=%s (known-good floor)",
+                    len(candidates), TTS_FLOOR_MODEL, TTS_FLOOR_VOICE)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Cartesia floor unavailable: %s", exc)
+
+    if not candidates:
+        # Nothing could even be constructed — almost always a missing
+        # LIVEKIT_API_KEY. Fail loudly here rather than handing AgentSession a
+        # TTS that cannot speak, which presents to the caller as pure silence.
+        raise RuntimeError(
+            "no TTS could be constructed — check LIVEKIT_API_KEY on the agent"
+        )
+
+    # max_retry_per_tts=1: the voice-does-not-exist error is flagged
+    # retryable:false, so extra attempts only add dead air before failing over.
+    # One attempt each keeps time-to-first-audio short on a phone call.
+    return tts_api.FallbackAdapter(candidates, max_retry_per_tts=1)
+
+
+def build_pipeline_session() -> AgentSession:
+    """The one real difference from agent.py: a pipeline session instead of the
+    native-audio RealtimeModel. VAD + turn detection + interruption knobs match
+    agent.py — but here they are ACTIVE (they were inert with native audio)."""
     return AgentSession(
         # Silero VAD: widen the silence window 0.55 -> 0.75 so brief mid-sentence
         # pauses aren't read as end-of-turn. This is the ONLY end-of-turn guard on
@@ -115,9 +208,9 @@ def build_pipeline_session() -> AgentSession:
         min_interruption_duration=0.8,  # filters brief phone-line noise
         false_interruption_timeout=2.0, # telephony: resume after a brief false trip
         resume_false_interruption=True,
-        stt=inference.STT(**_stt_kwargs()),   # Cartesia Ink-Whisper (auto-detect EN+PL)
+        stt=inference.STT(**_stt_kwargs()),   # Deepgram Nova-3, language="multi"
         llm=inference.LLM(model=LLM_MODEL),
-        tts=inference.TTS(**tts_kwargs),
+        tts=_build_tts(),                     # FallbackAdapter: ElevenLabs -> Cartesia
     )
 
 
@@ -356,7 +449,13 @@ async def molo_pipeline_session(ctx: agents.JobContext):
             agent._stop_cover()
 
     # ── Start the conversation ──────────────────────────────
-    await session.generate_reply(instructions=GREETING)
+    # say() not generate_reply(): the disclosure must be spoken WORD FOR WORD, and
+    # generate_reply would let the model paraphrase it. allow_interruptions=False so
+    # a caller talking over the opening can't cut the notice short.
+    # add_to_chat_ctx=True (the default) is important here — unlike the tool
+    # fillers, the model SHOULD see that it already introduced itself, otherwise it
+    # opens the next turn by greeting the caller a second time.
+    await session.say(WELCOME_MESSAGE, allow_interruptions=False)
 
     # ── Wait for the call to end (disconnect / dead air / max duration) ──────
     disconnect_event = asyncio.Event()

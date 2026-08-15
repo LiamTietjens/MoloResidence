@@ -8,12 +8,7 @@ import type { Tables } from '@/backend/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { fetchCall } from '@/lib/calls-api';
-import {
-  CallDetail,
-  type CostRates,
-  type LinkedTicket,
-  type LinkedBooking,
-} from './call-detail-client';
+import { CallDetail } from './call-detail-client';
 
 type CallLog = Tables<'call_logs'>;
 
@@ -66,17 +61,11 @@ function CallDetailContent() {
     return <NotFound />;
   }
 
-  const { call, propertyName, costRates, tickets, bookings } = data;
+  // Only `call` is used now — the detail view shows four fields. fetchCall still
+  // returns propertyName/costRates/tickets/bookings; they are simply not rendered.
+  const { call } = data;
 
-  return (
-    <CallDetail
-      call={call as unknown as CallLog}
-      propertyName={propertyName}
-      costRates={costRates as CostRates | null}
-      tickets={tickets as unknown as LinkedTicket[]}
-      bookings={bookings as unknown as LinkedBooking[]}
-    />
-  );
+  return <CallDetail call={call as unknown as CallLog} />;
 }
 
 export default function CallDetailPage() {

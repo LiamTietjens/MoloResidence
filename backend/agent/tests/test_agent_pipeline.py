@@ -22,24 +22,39 @@ def test_module_imports_and_uses_pipeline_prompt():
 
 def test_model_constants_are_the_verified_strings():
     import agent_pipeline as ap
-    assert ap.STT_MODEL == "cartesia/ink-whisper"      # Whisper STT, auto-detect EN+PL
-    assert ap.STT_LANGUAGE == ""                       # empty => no language hint (Whisper auto-detects)
+    # STT: Deepgram Nova-3 in MULTILINGUAL mode. language="multi" is the whole point
+    # — it makes Nova-3 detect the language per segment so a caller switching EN<->PL
+    # mid-call is transcribed correctly. Dropping the hint silently degrades to
+    # English-only, which is the failure this assertion exists to catch.
+    assert ap.STT_MODEL == "deepgram/nova-3"
+    assert ap.STT_LANGUAGE == "multi"
     assert ap.LLM_MODEL == "google/gemma-4-31b-it"
-    # ElevenLabs retires on the LiveKit Inference gateway 2026-08-31 — migrated to
-    # Cartesia sonic-3.5 (39 languages incl. Polish, fastest TTFB on the gateway).
+    # TTS: Cartesia Sonic-3, the client's voice, rendering Polish.
     assert ap.TTS_MODEL == "cartesia/sonic-3.5"
-    assert ap.TTS_VOICE == "f786b574-daa5-4673-aa0c-cbe3e8534c02"   # Cartesia "Katie" (female)
+    assert ap.TTS_VOICE == "43e52207-96fc-4e01-aaf8-cae317e43fdb"
+    assert ap.TTS_LANGUAGE == "pl"
+    # Known-good floor: the pair the agent ran on before 2026-08-15.
+    assert ap.TTS_FLOOR_MODEL == "cartesia/sonic-3.5"
+    assert ap.TTS_FLOOR_VOICE == "f786b574-daa5-4673-aa0c-cbe3e8534c02"  # "Katie"
+
+
+def test_the_floor_uses_a_different_voice_than_the_primary():
+    # The floor exists to survive an unresolvable primary voice id. Pointing both
+    # legs at the same voice makes the fallback fail for the identical reason and
+    # silently reinstates the 2026-08-15 outage.
+    import agent_pipeline as ap
+    assert ap.TTS_VOICE != ap.TTS_FLOOR_VOICE
 
 
 def test_no_elevenlabs_references_remain():
-    # Guards the migration: any leftover ElevenLabs model/voice/param would break
-    # outright once the gateway retires those models on 2026-08-31.
+    # Moved off ElevenLabs entirely on 2026-08-15: the client's voices were
+    # community-library ones, which LiveKit Inference cannot resolve, and every
+    # elevenlabs/* gateway model retires 2026-08-31 anyway.
     import agent_pipeline as ap
+    assert not hasattr(ap, "ELEVEN_VOICE_ID")
+    assert not hasattr(ap, "ELEVEN_MODEL")
     assert "elevenlabs" not in ap.TTS_MODEL.lower()
-    assert not hasattr(ap, "TTS_STABILITY")      # ElevenLabs-only voice_settings
-    assert not hasattr(ap, "TTS_SIMILARITY")
-    assert not hasattr(ap, "TTS_STYLE")
-    assert not hasattr(ap, "TTS_SPEAKER_BOOST")
+    assert "elevenlabs" not in ap.TTS_FLOOR_MODEL.lower()
 
 
 def test_cartesia_speed_is_within_the_documented_range():
@@ -60,30 +75,102 @@ def test_build_session_wires_all_three_legs(monkeypatch):
         def __init__(self, model=None, **kw): seen["llm"] = model
     class FakeTTS:
         def __init__(self, model=None, voice=None, extra_kwargs=None, **kw):
+            seen.setdefault("tts_all", []).append((model, voice))
             seen["tts"] = (model, voice); seen["tts_extra"] = extra_kwargs
 
     monkeypatch.setattr(ap.inference, "STT", FakeSTT)
     monkeypatch.setattr(ap.inference, "LLM", FakeLLM)
     monkeypatch.setattr(ap.inference, "TTS", FakeTTS)
+    monkeypatch.setattr(ap.tts_api, "FallbackAdapter", lambda c, **kw: c)
     # silero.VAD.load / MultilingualModel are heavyweight; stub them too.
     # VAD.load now takes min_silence_duration, so the stub must accept kwargs.
     monkeypatch.setattr(ap.silero.VAD, "load", staticmethod(lambda **kw: object()))
     monkeypatch.setattr(ap, "MultilingualModel", lambda: object())
 
     ap.build_pipeline_session()
-    # Whisper auto-detects, so no language hint is passed (language stays None).
-    assert seen["stt"] == ("cartesia/ink-whisper", None)
+    # Nova-3 needs the explicit "multi" hint to transcribe EN+PL in one stream.
+    assert seen["stt"] == ("deepgram/nova-3", "multi")
     assert seen["llm"] == "google/gemma-4-31b-it"
-    assert seen["tts"][0] == "cartesia/sonic-3.5"
-    assert seen["tts"][1] == "f786b574-daa5-4673-aa0c-cbe3e8534c02"   # Cartesia "Katie" wired
-    # Cartesia generation config rides through as extra_kwargs. These are a DIFFERENT
-    # parameter set to ElevenLabs' voice_settings — passing the old keys would be
-    # silently ignored, losing all the anti-robotic tuning.
-    extra = seen["tts_extra"]
-    assert extra["speed"] == 1.1          # snappier than default (1.0 read scripted)
-    assert extra["emotion"] == "content"  # warm concierge, not flat
-    for gone in ("stability", "similarity_boost", "style", "use_speaker_boost"):
-        assert gone not in extra, f"ElevenLabs-only param leaked into Cartesia call: {gone}"
+    # Two Cartesia legs: the client's Sonic-3 voice first, known-good floor last.
+    assert seen["tts_all"] == [
+        ("cartesia/sonic-3.5", "43e52207-96fc-4e01-aaf8-cae317e43fdb"),
+        ("cartesia/sonic-3.5", "f786b574-daa5-4673-aa0c-cbe3e8534c02"),
+    ]
+
+
+def test_primary_leads_and_the_floor_backs_it(monkeypatch):
+    import agent_pipeline as ap
+
+    monkeypatch.setattr(ap.inference, "TTS", lambda **kw: kw)
+    monkeypatch.setattr(ap.tts_api, "FallbackAdapter", lambda c, **kw: c)
+
+    candidates = ap._build_tts()
+    # Both legs run the same model, so VOICE is what distinguishes them: the
+    # client's verified voice leads, stock "Katie" backs it up.
+    assert [c["voice"] for c in candidates] == [
+        "43e52207-96fc-4e01-aaf8-cae317e43fdb",
+        "f786b574-daa5-4673-aa0c-cbe3e8534c02",
+    ]
+    assert all(c["model"] == "cartesia/sonic-3.5" for c in candidates)
+    # Polish must reach the gateway — without it Cartesia renders with the model
+    # default (English) phonetics, which is audibly wrong on Polish replies.
+    assert candidates[0]["language"] == "pl"
+
+
+def test_tts_failover_happens_at_synthesis_not_construction(monkeypatch):
+    # THE REGRESSION THIS GUARDS (live outage 2026-08-15): an unusable voice does
+    # NOT raise at construction. inference.TTS builds fine and only errors on the
+    # first real synthesis ("A voice with voice_id ... does not exist",
+    # retryable:false), so a construction-time try/except ladder never fires and
+    # the caller hears silence for the entire call. The candidates must therefore
+    # be handed to a FallbackAdapter, which fails over per-utterance.
+    import agent_pipeline as ap
+
+    monkeypatch.setattr(ap.inference, "TTS", lambda **kw: kw)
+
+    wrapped = {}
+
+    def fake_adapter(candidates, **kw):
+        wrapped["candidates"] = candidates
+        wrapped["kw"] = kw
+        return "adapter"
+
+    monkeypatch.setattr(ap.tts_api, "FallbackAdapter", fake_adapter)
+    assert ap._build_tts() == "adapter"
+    # More than one candidate, or there is nothing to fail over TO.
+    assert len(wrapped["candidates"]) >= 2
+    # The Cartesia floor must be last so it catches everything above it.
+    assert wrapped["candidates"][-1]["model"] == "cartesia/sonic-3.5"
+    # retryable:false errors gain nothing from retries — they just add dead air.
+    assert wrapped["kw"]["max_retry_per_tts"] == 1
+
+
+def test_cartesia_floor_keeps_its_tuning(monkeypatch):
+    import agent_pipeline as ap
+
+    monkeypatch.setattr(ap.inference, "TTS", lambda **kw: kw)
+    monkeypatch.setattr(ap.tts_api, "FallbackAdapter", lambda c, **kw: c)
+
+    floor = ap._build_tts()[-1]
+    assert floor["model"] == "cartesia/sonic-3.5"
+    assert floor["extra_kwargs"]["speed"] == 1.1
+    assert floor["extra_kwargs"]["emotion"] == "content"
+
+
+def test_welcome_message_is_spoken_verbatim_and_carries_the_disclosures():
+    # The opening is a compliance line, not flavour text: it must state that Mili is
+    # an AI, that the call is transcribed, and how to get data deleted. It is spoken
+    # with session.say (not generate_reply) precisely so the model cannot reword it.
+    import agent_pipeline as ap
+    w = ap.WELCOME_MESSAGE
+    assert "Molo Residence" in w
+    assert "Mili" in w
+    assert "AI agent" in w                    # AI disclosure
+    assert "transcribed" in w                 # recording/transcription notice
+    assert "hang up at any point" in w        # right to end the call
+    assert "info@moloresidence.pl" in w       # data-deletion contact
+    # Guard the mis-transcribed spellings from the original dictation.
+    assert "Mola" not in w and "morlo" not in w.lower()
 
 
 def test_build_session_tunes_turn_taking(monkeypatch):
@@ -97,6 +184,9 @@ def test_build_session_tunes_turn_taking(monkeypatch):
     monkeypatch.setattr(ap.inference, "STT", lambda **kw: object())
     monkeypatch.setattr(ap.inference, "LLM", lambda **kw: object())
     monkeypatch.setattr(ap.inference, "TTS", lambda **kw: object())
+    # The real FallbackAdapter validates that it was handed genuine TTS instances,
+    # which the bare object() stubs above are not — stub it out too.
+    monkeypatch.setattr(ap.tts_api, "FallbackAdapter", lambda c, **kw: object())
     monkeypatch.setattr(ap.silero.VAD, "load", staticmethod(lambda **kw: object()))
     monkeypatch.setattr(ap, "MultilingualModel", lambda: object())
     monkeypatch.setattr(ap, "AgentSession", FakeSession)
