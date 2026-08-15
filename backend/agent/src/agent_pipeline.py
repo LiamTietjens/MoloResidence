@@ -515,6 +515,48 @@ class PipelineMoloAgent(MoloAgent):
             return f"SAY (word for word, do not add anything): {msg}"
         return await super().transfer_call(context)
 
+    # Marks the injected "you already said this" notes so each one replaces the
+    # last instead of piling up over a long call.
+    _SPOKEN_NOTE_ID = "molo-spoken-filler"
+
+    async def _note_already_spoken(self, phrase: str) -> None:
+        """Tell the model, in its own context, that `phrase` was just spoken aloud.
+
+        The filler is played with add_to_chat_ctx=False, so without this the model
+        has NO IDEA it was said — and then narrates the same action itself. That is
+        the observed double-up on send_booking_link (2026-08-15): the filler says
+        "I'll send that booking link over to you now", the tool result says "tell
+        them to tap it", and the model dutifully says the first sentence again.
+
+        Injected as a SYSTEM message, deliberately NOT as an assistant turn. Adding
+        it as assistant text is what add_to_chat_ctx=True does, and that made the
+        model continue straight on from the filler ("Let me check that for
+        you.Hmm, I'm sorry…") — the very reason it was turned off. A system note
+        reads as an instruction instead of a half-finished sentence to complete.
+
+        Replaces the previous note rather than appending, so a seven-minute call
+        doesn't accumulate a stack of stale "you already said…" lines.
+        """
+        try:
+            ctx = self.chat_ctx.copy()
+            ctx.items[:] = [
+                i for i in ctx.items
+                if not str(getattr(i, "id", "")).startswith(self._SPOKEN_NOTE_ID)
+            ]
+            ctx.add_message(
+                role="system",
+                id=f"{self._SPOKEN_NOTE_ID}-{int(time.monotonic() * 1000)}",
+                content=(
+                    f'You have ALREADY said this out loud to the caller just now: "{phrase}" '
+                    "The caller has heard it. Do NOT say it again, and do NOT restate the "
+                    "same idea in different words. Continue from there with the NEW "
+                    "information only."
+                ),
+            )
+            await self.update_chat_ctx(ctx)
+        except Exception as exc:  # noqa: BLE001 — never let this break a live call
+            logger.warning("could not note spoken filler: %s", exc)
+
     async def _before_tool(self, context, key):
         # 1) Fixed spoken filler — one per 8s cooldown, audio-only, in the
         #    caller's language. None means this tool speaks nothing at all.
@@ -523,9 +565,11 @@ class PipelineMoloAgent(MoloAgent):
             now = time.monotonic()
             if now - getattr(self, "_last_filler_at", 0.0) >= self._FILLER_COOLDOWN_S:
                 self._last_filler_at = now
-                # add_to_chat_ctx=False: audio-only, else the LLM parrots the filler
-                # ("Let me check that for you.Hmm, I'm sorry…").
+                # add_to_chat_ctx=False: audio-only. The model is told about it via
+                # _note_already_spoken below instead — see that docstring for why
+                # the assistant-turn route is not used.
                 context.session.say(phrase, allow_interruptions=False, add_to_chat_ctx=False)
+                await self._note_already_spoken(phrase)
         # 2) Arm the dynamic slow-tool cover; it self-cancels if the tool is fast.
         self._cover_gen = getattr(self, "_cover_gen", 0) + 1
         asyncio.create_task(self._start_cover_after_delay(self._cover_gen))

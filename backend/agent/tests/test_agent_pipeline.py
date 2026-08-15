@@ -557,3 +557,83 @@ def test_spoken_days_is_derived_not_hardcoded(monkeypatch):
 
 def _days_en(ap):
     return ap._spoken_days("en")
+
+
+# ── "already said this" injection (fixes the double-up) ──────────────────────
+
+def _notes(ap, agent):
+    return [i for i in agent.chat_ctx.items
+            if str(getattr(i, "id", "")).startswith(ap.PipelineMoloAgent._SPOKEN_NOTE_ID)]
+
+
+def test_spoken_filler_is_announced_to_the_model():
+    # The filler plays with add_to_chat_ctx=False, so without this note the model
+    # cannot know it was said and narrates the same action again — the observed
+    # send_booking_link double-up.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    asyncio.run(agent._note_already_spoken("I'll send that booking link over to you now."))
+    notes = _notes(ap, agent)
+    assert len(notes) == 1
+    assert "booking link" in str(notes[0].content)
+
+
+def test_the_note_is_a_system_message_not_an_assistant_turn():
+    # THE POINT OF THE DESIGN: injecting it as assistant text is what
+    # add_to_chat_ctx=True does, and that made the model continue straight on from
+    # the filler ("Let me check that for you.Hmm, I'm sorry…"). A system note reads
+    # as an instruction, not as a sentence to finish.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    asyncio.run(agent._note_already_spoken("anything"))
+    assert _notes(ap, agent)[0].role == "system"
+
+
+def test_notes_replace_rather_than_accumulate():
+    # A 7-minute call can fire many fillers; stale "you already said…" lines would
+    # pile up and start describing things said minutes ago.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    for phrase in ("first", "second", "third"):
+        asyncio.run(agent._note_already_spoken(phrase))
+    notes = _notes(ap, agent)
+    assert len(notes) == 1
+    assert "third" in str(notes[0].content)
+    assert "first" not in str(notes[0].content)
+
+
+def test_silent_tool_injects_no_note():
+    # search_kb speaks nothing, so there is nothing to tell the model about.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    ctx = _FakeCtx()
+    asyncio.run(agent._before_tool(ctx, "search_kb"))
+    assert ctx.session.said is None
+    assert _notes(ap, agent) == []
+
+
+def test_note_failure_never_breaks_the_call(monkeypatch):
+    # This runs mid-call on the hot path. If context injection ever fails, the
+    # caller must still get their tool — a duplicated sentence beats a dropped call.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+
+    def _boom(self):
+        raise RuntimeError("no chat ctx")
+    monkeypatch.setattr(type(agent), "chat_ctx", property(_boom))
+
+    ctx = _FakeCtx()
+    asyncio.run(agent._before_tool(ctx, "identify_guest"))   # must not raise
+    assert ctx.session.said is not None                      # filler still spoken
+
+
+def test_prompt_carries_the_new_client_sections():
+    import pipeline_prompt as pp
+    p = pp.PIPELINE_INSTRUCTIONS
+    assert "You speak only english and polish fluently." in p
+    assert "Early Checkin / Late Checkout" in p
+    assert "thirty minutes" in p
+    assert "## Transfer Call" in p
+    # The prompt's stated transfer hours must match the code gate, or the agent
+    # promises availability the gate then refuses.
+    assert "mon - friday from 8 in the morning to 5 in the afternoon" in p
