@@ -33,3 +33,11 @@ export function fetchCalls(): Promise<CallLog[]> {
 export function fetchCall(id: string): Promise<CallDetail> {
   return apiFetch<CallDetail>(`/calls/${id}`);
 }
+
+/**
+ * Delete a call's transcript. The call itself (time, caller, duration, outcome)
+ * is kept — only the conversation text is removed.
+ */
+export function deleteCallTranscript(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/calls/${id}/transcript`, { method: 'DELETE' });
+}

@@ -59,5 +59,35 @@ export function buildCallRoutes(makeClient: ClientFactory = serviceClient) {
     });
   });
 
+  // Delete a call's transcript, keeping the call itself.
+  //
+  // Despite the column name, `summary` IS the transcript — the agent writes the
+  // raw turn-by-turn "role: text" lines there (see agent_pipeline.py). Nothing
+  // writes `transcript_url`, so clearing `summary` clears the only copy the
+  // dashboard holds.
+  //
+  // Deliberately NOT deleting the call_logs row: started_at / duration /
+  // from_number / outcome drive the metrics on the dashboard home, and losing
+  // them would silently change historical numbers. This exists for
+  // data-deletion requests, where the conversation is the sensitive part.
+  app.delete('/:id/transcript', async (c) => {
+    const id = c.req.param('id');
+    const sb = makeClient();
+
+    // 404 rather than a silent no-op, so the UI can tell "already gone" from
+    // "wrong id".
+    const { data: existing } = await sb
+      .from('call_logs').select('id').eq('id', id).maybeSingle();
+    if (!existing) return c.json({ error: 'Not found.' }, 404);
+
+    const { error } = await sb
+      .from('call_logs').update({ summary: null }).eq('id', id);
+    if (error) {
+      console.error('DELETE /calls/:id/transcript failed:', error);
+      return c.json({ error: 'Request failed.' }, 400);
+    }
+    return c.json({ ok: true });
+  });
+
   return app;
 }

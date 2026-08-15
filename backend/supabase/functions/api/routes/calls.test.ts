@@ -69,3 +69,44 @@ Deno.test('GET /calls/:id returns 404 when the call is missing', async () => {
   const res = await app(fakeClient({ call_logs: [] })).request('/calls/nope');
   assertEquals(res.status, 404);
 });
+
+Deno.test('DELETE /calls/:id/transcript clears the transcript but keeps the call', async () => {
+  const updates: Record<string, unknown>[] = [];
+  const client = {
+    from() {
+      const single = () => Promise.resolve({ data: { id: 'c1' }, error: null });
+      const builder: Record<string, unknown> = {
+        select() { return builder; },
+        eq() { return builder; },
+        single,
+        maybeSingle: single,
+        update(patch: Record<string, unknown>) { updates.push(patch); return builder; },
+        then(onFulfilled: (v: { data: null; error: null }) => unknown) {
+          return Promise.resolve({ data: null, error: null }).then(onFulfilled);
+        },
+      };
+      return builder;
+    },
+  };
+  const res = await app(client).request('/calls/c1/transcript', { method: 'DELETE' });
+  assertEquals(res.status, 200);
+  // Only `summary` (which holds the transcript) is nulled. Anything else in the
+  // patch would risk the call metrics that the dashboard home is built on.
+  assertEquals(updates, [{ summary: null }]);
+});
+
+Deno.test('DELETE /calls/:id/transcript 404s for an unknown call', async () => {
+  const client = {
+    from() {
+      const single = () => Promise.resolve({ data: null, error: null });
+      const builder: Record<string, unknown> = {
+        select() { return builder; }, eq() { return builder; },
+        single, maybeSingle: single,
+        update() { throw new Error('must not update a call that does not exist'); },
+      };
+      return builder;
+    },
+  };
+  const res = await app(client).request('/calls/nope/transcript', { method: 'DELETE' });
+  assertEquals(res.status, 404);
+});

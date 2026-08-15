@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as client from './api-client';
-import { fetchCalls, fetchCall } from './calls-api';
+import { fetchCalls, fetchCall, deleteCallTranscript } from './calls-api';
 
 beforeEach(() => vi.restoreAllMocks());
 
@@ -37,5 +37,14 @@ describe('calls-api', () => {
     const res = await fetchCall('c2');
     expect(res.tickets).toHaveLength(1);
     expect(res.bookings).toHaveLength(1);
+  });
+
+  it('deleteCallTranscript DELETEs /calls/:id/transcript', async () => {
+    const spy = vi.spyOn(client, 'apiFetch').mockResolvedValue({ ok: true } as never);
+    const res = await deleteCallTranscript('c1');
+    // The path must target the transcript sub-resource, NOT /calls/c1 — that
+    // would read as deleting the whole call record.
+    expect(spy).toHaveBeenCalledWith('/calls/c1/transcript', { method: 'DELETE' });
+    expect(res.ok).toBe(true);
   });
 });

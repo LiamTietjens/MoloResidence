@@ -1,11 +1,15 @@
 'use client';
 
 import Link from 'next/link';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import type { Tables } from '@/backend/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge } from '@/components/shared/status-badge';
-import { ArrowLeft } from 'lucide-react';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { deleteCallTranscript } from '@/lib/calls-api';
+import { ArrowLeft, Trash2 } from 'lucide-react';
 
 type CallLog = Tables<'call_logs'>;
 
@@ -78,6 +82,19 @@ const SPEAKER_LABEL: Record<Turn['speaker'], string> = {
  */
 export function CallDetail({ call }: { call: CallLog }) {
   const turns = parseTranscript(call.summary);
+  const queryClient = useQueryClient();
+
+  const deleteTranscript = useMutation({
+    mutationFn: () => deleteCallTranscript(call.id),
+    onSuccess: async () => {
+      // Refetch this call and the list — the list is what staff return to.
+      await queryClient.invalidateQueries({ queryKey: ['calls'] });
+      toast.success('Transcript deleted.');
+    },
+    onError: (e: unknown) => {
+      toast.error(e instanceof Error ? e.message : 'Could not delete the transcript.');
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -107,7 +124,42 @@ export function CallDetail({ call }: { call: CallLog }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Transcript</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-sm font-medium">Transcript</CardTitle>
+            {turns.length > 0 && (
+              <ConfirmDialog
+                trigger={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={deleteTranscript.isPending}
+                  >
+                    <Trash2 data-icon="inline-start" />
+                    {deleteTranscript.isPending ? 'Deleting…' : 'Delete transcript'}
+                  </Button>
+                }
+                title="Delete this transcript?"
+                description={
+                  <>
+                    This permanently removes all{' '}
+                    <strong>{turns.length}</strong>{' '}
+                    {turns.length === 1 ? 'line' : 'lines'} of conversation from
+                    this call. It cannot be undone, and the agent keeps no other
+                    copy.
+                    <br />
+                    <br />
+                    The call record itself stays — start time, caller number,
+                    duration and outcome are kept so your call metrics don&apos;t
+                    change.
+                  </>
+                }
+                confirmLabel="Delete transcript"
+                onConfirm={async () => {
+                  await deleteTranscript.mutateAsync();
+                }}
+              />
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {turns.length === 0 ? (
