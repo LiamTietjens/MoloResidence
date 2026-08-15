@@ -53,6 +53,8 @@
   .ask-b{flex:1;min-width:0}
   .ask-q{font-weight:600;margin:1px 0 3px}
   .ask-d{color:var(--muted);font-size:13.5px}
+  .ask-l{margin:6px 0 8px;padding-left:18px}
+  .ask-l li{margin:2px 0;font-size:14px}
 
   /* ── simple KB diagram ── */
   .dia{border:1px solid var(--border);border-radius:10px;background:var(--subtle);
@@ -112,18 +114,21 @@
   <div class="ask-row">
     <div class="ask-n">1</div>
     <div class="ask-b">
-      <div class="ask-q">When can the AI transfer a caller to a human?</div>
-      <div class="ask-d">Between which <b>hours</b>, and on which <b>days</b>? Right now it's set to
-      Mon–Fri, 8am–5pm — but that was a guess. Public listings say reception is 24 hours. If that's
-      true, the AI is refusing to put callers through every evening and all weekend.</div>
+      <div class="ask-q">When can the AI transfer the call to a human?</div>
+      <ul class="ask-l">
+        <li>On what days?</li>
+        <li>At what times on those days?</li>
+      </ul>
+      <div class="ask-d">It's currently set to Monday–Friday, 8am–5pm, but that was our best guess.
+      Public listings say reception is open 24 hours.</div>
     </div>
   </div>
   <div class="ask-row">
     <div class="ask-n">2</div>
     <div class="ask-b">
-      <div class="ask-q">Which number should transfers go to?</div>
+      <div class="ask-q">Which number should the transfers go to?</div>
       <div class="ask-d">Currently <b>+48 666 956 956</b>. The number published on the website is
-      <b>+48 58 355 11 00</b>. Which one should guests reach?</div>
+      <b>+48 58 355 11 00</b>.</div>
     </div>
   </div>
   <div class="ask-row">
@@ -140,14 +145,6 @@
       <div class="ask-q">How far is the Pułaskiego 21 car park?</div>
       <div class="ask-d">It's written as 30 m, 150 m and 200 m in three different places. Which is
       right?</div>
-    </div>
-  </div>
-  <div class="ask-row">
-    <div class="ask-n">5</div>
-    <div class="ask-b">
-      <div class="ask-q">What are <code>32 Puł 2/2</code> and <code>33 Sob 8/4A</code>?</div>
-      <div class="ask-d">They appear in the channel-manager list but aren't among the 8 properties.
-      Still in use, or old?</div>
     </div>
   </div>
 </div>
