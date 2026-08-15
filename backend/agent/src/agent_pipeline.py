@@ -85,18 +85,17 @@ TTS_MODEL = os.getenv("TTS_MODEL", "cartesia/sonic-3.5")
 TTS_VOICE = os.getenv("CARTESIA_VOICE_ID", "43e52207-96fc-4e01-aaf8-cae317e43fdb")
 TTS_LANGUAGE = os.getenv("TTS_LANGUAGE", "pl")
 
-# Whether the TTS ACCENT follows the caller's detected language mid-call.
+# Whether the TTS retunes to the caller's detected language each turn. ON.
 #
-# OFF by default (client preference, 2026-08-15). Cartesia's `language` controls
-# the accent the voice reads with, and this voice reading English text with the
-# Polish setting is what the client picked in the Agent Builder and prefers — a
-# Polish-accented concierge for a Sopot hotel, in either language. Leaving it on
-# meant an English-speaking caller flipped the voice to an English accent for the
-# whole call, which is exactly the "very English accent" they reported.
+# Cartesia's `language` does two things at once: it sets the accent AND it drives
+# text normalisation. With "pl" held over an English sentence, digits and ordinals
+# get expanded by POLISH rules — "August 16th … the 18th" came out as Polish
+# number words mid-sentence (observed on a live call, 2026-08-15). Following the
+# caller keeps numbers and dates readable in whichever language is being spoken.
 #
-# This is deliberately SEPARATE from the filler wording, which always follows the
-# caller (see _filler_for) — words and accent are different questions.
-TTS_FOLLOW_CALLER_LANGUAGE = os.getenv("TTS_FOLLOW_CALLER_LANGUAGE", "0") == "1"
+# The greeting still opens on TTS_LANGUAGE (Polish-accented, and it contains no
+# numbers), then adapts from the caller's first turn.
+TTS_FOLLOW_CALLER_LANGUAGE = os.getenv("TTS_FOLLOW_CALLER_LANGUAGE", "1") == "1"
 
 # Known-good FLOOR on a DIFFERENT voice: Cartesia's stock "Katie", the voice the
 # agent ran on before today and therefore proven to synthesize. Its entire job is
@@ -471,27 +470,35 @@ class PipelineMoloAgent(MoloAgent):
     # Language the caller last spoke, as reported by Deepgram. Drives both the
     # filler wording and the TTS accent. Starts as the greeting's language because
     # the agent speaks first, before there is anything to detect.
+    # Language the FILLER WORDING uses. Starts English because the agent speaks
+    # first and there is nothing to detect yet.
     caller_language = DEFAULT_FILLER_LANGUAGE
 
+    # Language the TTS is CURRENTLY tuned to. Tracked separately from
+    # caller_language and seeded from TTS_LANGUAGE, because the two genuinely start
+    # out different: the greeting opens Polish-accented while the filler wording
+    # defaults to English. Comparing against caller_language instead would make the
+    # very first retune a no-op for an English caller (base "en" == caller_language
+    # "en" → early return) and the voice would stay stuck on Polish numbers — the
+    # exact bug this pairing is here to prevent.
+    _tts_language = TTS_LANGUAGE
+
     def _on_caller_language(self, language: str | None) -> None:
-        """Track the caller's language so the spoken FILLERS use their words.
+        """Follow the caller: filler wording AND the TTS language.
 
         Deepgram nova-3 in multi mode reports a language per transcribed turn.
 
-        The TTS accent is NOT changed here by default. Cartesia's `language` sets
-        the accent the voice reads with, and the client wants the Polish-accented
-        voice in both languages (it is what they chose in the Agent Builder).
-        Retuning per turn meant an English caller got an English accent for the
-        whole call. Set TTS_FOLLOW_CALLER_LANGUAGE=1 to restore the old behaviour.
+        Retuning the TTS matters for more than accent — Cartesia's `language` also
+        drives text normalisation, so a Polish-tuned voice reads "August 16th" as
+        Polish number words even inside an English sentence.
         """
         if not language:
             return
         # Deepgram may return a region-qualified tag ("en-US"); we want the base.
         base = language.split("-")[0].lower()
-        if base == self.caller_language:
-            return
-        self.caller_language = base
-        if not TTS_FOLLOW_CALLER_LANGUAGE:
+        self.caller_language = base          # filler wording, cheap to set every turn
+
+        if not TTS_FOLLOW_CALLER_LANGUAGE or base == self._tts_language:
             return
         # Agent.session raises RuntimeError when the agent isn't attached to a
         # running session, so this can't be a plain getattr. Losing the retune is
@@ -501,8 +508,9 @@ class PipelineMoloAgent(MoloAgent):
         except Exception:  # noqa: BLE001
             legs = None
         if legs:
-            logger.info("caller language -> %s; retuning TTS accent", base)
+            logger.info("caller language %s -> %s; retuning TTS", self._tts_language, base)
             _set_tts_language(legs, base)
+            self._tts_language = base
 
     def _filler_for(self, key: str) -> str | None:
         """The filler for `key` in the caller's current language, or None if the

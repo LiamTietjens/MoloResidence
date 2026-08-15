@@ -182,27 +182,47 @@ def test_data_deletion_contact_is_in_the_prompt():
     assert "info at molo residence dot pl" in pipeline_prompt.PIPELINE_INSTRUCTIONS
 
 
-def test_tts_accent_stays_polish_and_is_never_overridden():
-    # REGRESSION (2026-08-15): the greeting used to be pinned to English, which
-    # overwrote TTS_LANGUAGE one second into every call and never restored it for
-    # an English-speaking caller — the whole call ran with an English accent. The
-    # client wants the Polish-accented voice in both languages.
+def test_tts_follows_the_caller_language():
+    # Cartesia's `language` drives text NORMALISATION as well as accent: tuned to
+    # "pl" it reads "August 16th" as Polish number words inside an English
+    # sentence (observed live 2026-08-15). Following the caller keeps dates and
+    # counts readable in whichever language is actually being spoken.
     import agent_pipeline as ap
-    assert ap.TTS_LANGUAGE == "pl"
-    assert ap.TTS_FOLLOW_CALLER_LANGUAGE is False
-    assert not hasattr(ap, "WELCOME_LANGUAGE")
+    assert ap.TTS_FOLLOW_CALLER_LANGUAGE is True
 
 
-def test_filler_language_still_follows_the_caller_even_though_accent_does_not(monkeypatch):
-    # Words and accent are separate questions: a Polish caller should hear Polish
-    # WORDS, still read in the same Polish-accented voice.
+def test_first_retune_fires_even_though_fillers_default_to_english(monkeypatch):
+    # THE TRAP: the TTS starts on TTS_LANGUAGE ("pl") while the filler wording
+    # starts on English. Comparing the detected language against caller_language
+    # would make the first English turn a no-op ("en" == "en") and leave the voice
+    # stuck reading Polish numbers. The TTS language is tracked separately.
+    import agent_pipeline as ap
+    agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
+    assert agent._tts_language == ap.TTS_LANGUAGE == "pl"
+    assert agent.caller_language == "en"        # they genuinely start different
+
+    calls = []
+    monkeypatch.setattr(ap, "_set_tts_language", lambda legs, lang: calls.append(lang))
+    fake = type("S", (), {"_molo_tts_legs": [object()]})()
+    monkeypatch.setattr(type(agent), "session", property(lambda self: fake))
+
+    agent._on_caller_language("en-US")
+    assert calls == ["en"], "first English turn must retune away from Polish"
+    assert agent._tts_language == "en"
+
+
+def test_tts_switches_back_and_forth_and_skips_redundant_retunes(monkeypatch):
     import agent_pipeline as ap
     agent = ap.PipelineMoloAgent(instructions="x", default_kb_content="")
     calls = []
     monkeypatch.setattr(ap, "_set_tts_language", lambda legs, lang: calls.append(lang))
-    agent._on_caller_language("pl")
-    assert agent.caller_language == "pl"          # filler wording switches
-    assert calls == []                            # accent does NOT
+    fake = type("S", (), {"_molo_tts_legs": [object()]})()
+    monkeypatch.setattr(type(agent), "session", property(lambda self: fake))
+
+    for turn in ("en-US", "en", "pl-PL", "pl", "en"):
+        agent._on_caller_language(turn)
+    # One retune per actual change — repeats of the same language are skipped.
+    assert calls == ["en", "pl", "en"]
 
 
 def test_build_session_tunes_turn_taking(monkeypatch):
