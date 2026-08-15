@@ -1,23 +1,12 @@
-# CLAUDE.md
+@AGENTS.md
+
+# Molo Voice Agent Dashboard
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-Molo Residence — the voice agent and staff dashboard for the Molo hotel group in Poland. This is a monorepo holding both halves of the system: the Python/LiveKit voice agent that answers guest calls, and the single-user, staff-facing web dashboard for managing properties, knowledge bases, call logs, maintenance tickets, and urgency rules.
-
-## Repository Layout
-
-```
-frontend/            Next.js dashboard, static export → out/
-backend/
-  agent/             Python voice agent (LiveKit, deployed via Dockerfile)
-  supabase/          Edge Function `api` (Deno/Hono) + SQL migrations
-render.yaml          Render blueprint — static site for frontend/ only
-MOLO_PLAN.md         Full spec; § 10 has the idempotent SQL schema + seed
-```
-
-Both halves share one Supabase project: the dashboard reaches it only through the edge `api`, while the agent talks to it via `backend/agent/src/molo_supabase.py`.
+Molo Voice Agent Dashboard — a single-user, staff-facing web dashboard for managing properties, knowledge bases, call logs, maintenance tickets, and urgency rules for the Molo hotel group in Poland. The voice agent itself lives elsewhere; this repo is the dashboard (static frontend + Supabase edge `api`).
 
 ## Stack
 
@@ -31,26 +20,11 @@ Both halves share one Supabase project: the dashboard reaches it only through th
 
 ## Commands
 
-Dashboard — run from `frontend/`:
-
 ```bash
 npm run dev          # local dev server
 npm run build        # static production build → emits out/
 npm test             # vitest run
 npx shadcn@latest add <component>  # add shadcn components
-```
-
-Voice agent — run from `backend/agent/`:
-
-```bash
-uv sync              # install deps from uv.lock
-uv run pytest        # test suite
-```
-
-Edge function — deployed from `backend/supabase/`:
-
-```bash
-supabase functions deploy api
 ```
 
 ## Architecture
@@ -67,6 +41,8 @@ All auth is custom — no Supabase Auth, no OAuth, no magic links. Login posts c
 
 ### Database Schema (Supabase)
 Tables the dashboard surfaces: `users`, `properties` (8 seeded), `knowledge_bases` (general/property/exception kinds), `knowledge_base_rooms`, `urgency_rules` (4 tiers), `call_logs`, `maintenance_tickets`. (The booking-links, agent-settings, cost-rates, and feature-flags modules were cut from the dashboard during the static migration.)
+
+`same_night_bookings` is a **retained orphan**: the same-night booking flow it backed was removed on 2026-07-17 (KWHotel doesn't expose the endpoints it needed — see `docs/superpowers/specs/2026-07-17-remove-same-night-booking-design.md`). Nothing reads or writes it. The table and its migration are kept deliberately — dropping is irreversible, and the Supabase project was paused when the flow was withdrawn, so its contents were never verified. Do not build on it.
 
 A view `kb_for_room` resolves KB priority: exception > property > general for a given (property, room_number) pair.
 
