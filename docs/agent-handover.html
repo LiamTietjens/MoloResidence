@@ -117,6 +117,19 @@
 <!-- ══════════ QUESTIONS ══════════ -->
 <h2>Needed from Piotr</h2>
 
+<div class="note amber">
+  <p><b>One note before the questions — about breakfast orders.</b></p>
+  <p>The knowledge base said that if a guest calls after 8pm, the AI should take their breakfast
+  order and let reception know. We've taken that line out, because the AI has no way to do it —
+  sending messages or emails to your staff isn't part of what was built, so “I'll pass it on to
+  reception” would have been a promise with nothing behind it.</p>
+  <p>What it <b>can</b> do is tell the guest anything that's in the knowledge base, and put them
+  through to a person. So for a late breakfast order it can already say <i>“you can order through
+  the SmartHotel app, or on the form at reception”</i> — or offer to transfer the call. If you'd
+  like it to say something specific in that situation, just add it to the knowledge base and it
+  will.</p>
+</div>
+
 <div class="ask">
   <div class="ask-row">
     <div class="ask-n">1</div>
@@ -270,15 +283,20 @@ quality purposes. Are you an existing guest, or are you looking to book a stay?�
   <div class="fc-b">
     <div class="start"><svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.4-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/><line x1="2" y1="22" x2="22" y2="2"/></svg><span><b>Hang up first</b> — start each test with a fresh call</span></div>
     <div class="down">↓</div>
-    <div class="n you"><div class="who">You say</div>“I'm in room 5 at Pułaskiego 6a — what's for breakfast?”</div>
+    <div class="n you"><div class="who">You say</div>“I'm a guest — what's for breakfast?”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Asks for your room number, then which address, and
+      reads each back to check — breakfast differs by property</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Room 5”, then “Pułaskiego 6a”, confirming each</div>
     <div class="down">↓</div>
     <div class="pass">✓ Served 7:00–11:00, <b>60 PLN</b> per person, ordered a day ahead by 8pm,
       and it can name the sets — Fitness, Energy, Sweet, Fluffy Pancakes</div>
     <div class="down">↓</div>
-    <div class="n you"><div class="who">You say</div>“Can I still order for tomorrow? It's late.”</div>
+    <div class="n you"><div class="who">You say</div>“How do I order?”</div>
     <div class="down">↓</div>
-    <div class="pass">✓ Yes, you can still order — and it should point you to <b>how</b>: the link
-      in the SmartHotel guide (breakfasts.moloresidence.pl), or the paper form at reception</div>
+    <div class="pass">✓ Through the SmartHotel app link (breakfasts.moloresidence.pl), or the paper
+      form at reception</div>
   </div>
 </div>
 
@@ -313,8 +331,22 @@ quality purposes. Are you an existing guest, or are you looking to book a stay?�
   <div class="fc-b">
     <div class="start"><svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.4-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/><line x1="2" y1="22" x2="22" y2="2"/></svg><span><b>Hang up first</b> — start each test with a fresh call</span></div>
     <div class="down">↓</div>
-    <div class="n you"><div class="who">You say</div>“I'm in room 5 at Pułaskiego 6a and I can't get
-      into my room — the keypad isn't doing anything”</div>
+    <div class="n you"><div class="who">You say</div>“I'm a guest and I can't get into my room —
+      the keypad isn't doing anything”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Asks for your room number — it checks who you are
+      before helping with anything room-specific</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Room 5”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Repeats it back, then asks which address — room 5
+      exists at four properties</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Pułaskiego 6a”</div>
+    <div class="down">↓</div>
+    <div class="n ai"><div class="who">AI</div>Reads the address back to check it heard you right</div>
+    <div class="down">↓</div>
+    <div class="n you"><div class="who">You say</div>“Yes, that's right”</div>
     <div class="down">↓</div>
     <div class="n ai"><div class="who">AI</div><b>Talks you through it first</b> — press the keypad
       to wake it, enter the room code from your check-in instructions, and check your email,
