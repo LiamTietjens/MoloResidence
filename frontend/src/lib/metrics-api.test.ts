@@ -48,3 +48,32 @@ describe('metrics-api', () => {
     expect(res.categories[0].outcome).toBe('booking_link_sent');
   });
 });
+
+describe('metrics-api resilience', () => {
+  it('survives an API that predates the new fields', async () => {
+    // The dashboard (Render) and the API (Supabase edge) deploy separately, so
+    // new frontend against old API is a real state. This used to throw on
+    // series.length and render "This page couldn't load".
+    vi.spyOn(client, 'apiFetch').mockResolvedValue({
+      callsToday: 5, openTickets: 2, bookingCtr: '50%', recentCalls: [],
+    } as never);
+    const res = await fetchMetrics('week');
+    expect(res.series).toEqual([]);
+    expect(res.categories).toEqual([]);
+    expect(res.calls).toEqual([]);
+    expect(res.totalCalls).toBe(0);
+    expect(res.bucket).toBe('day');
+  });
+
+  it('survives null and non-array fields', async () => {
+    vi.spyOn(client, 'apiFetch').mockResolvedValue(null as never);
+    const a = await fetchMetrics('day');
+    expect(a.series).toEqual([]);
+    expect(a.range).toBe('day');
+
+    vi.spyOn(client, 'apiFetch').mockResolvedValue({ series: 'nope', calls: null } as never);
+    const b = await fetchMetrics('year');
+    expect(b.series).toEqual([]);
+    expect(b.calls).toEqual([]);
+  });
+});
