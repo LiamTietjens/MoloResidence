@@ -68,6 +68,49 @@ DEFAULT_FILLER_LANGUAGE = "en"
 # STT_LANGUAGE= (empty; Whisper auto-detects and rejects a language hint).
 STT_MODEL = os.getenv("STT_MODEL", "deepgram/nova-3")
 STT_LANGUAGE = os.getenv("STT_LANGUAGE", "multi")
+
+# Keyterm prompting — biases Deepgram toward the proper nouns this hotel actually
+# uses. Every one of these is a word an English-speaking caller says badly and
+# Deepgram then mangles; on a real call (2026-08-16) "Pułaskiego 6a" came back as
+# "Policy AOS CXR", then "Go six eight", then "Google six a", and "Sopot" simply
+# vanished from the transcript twice ("what is known for"). Both cost the caller
+# three attempts each.
+#
+# Deliberately NOT the whole knowledge base. Keyterms work by biasing the decoder,
+# so a long list of ordinary words dilutes the boost and can pull normal speech
+# toward them. Only distinctive names go in: places, streets, brands and the Wi-Fi
+# SSIDs a guest might read back.
+#
+# Diacritics are included as written (Pułaskiego) alongside a plain-ASCII variant,
+# since callers pronounce it as spelled and Deepgram may emit either form.
+STT_KEYTERMS = [
+    # City and streets — the addresses identify_guest has to disambiguate
+    "Sopot",
+    "Pułaskiego", "Pulaskiego",
+    "Chmielewskiego",
+    "Chopina",
+    "Sobieskiego",
+    "Bohaterów Monte Cassino",
+    # Property and brand names
+    "Molo Residence",
+    "Hotel Molo Residence",
+    "Molo Residence Apartments",
+    "Apartament Molo",
+    "Apartament Molo Superior",
+    "Riviera Residence Apartments",
+    "Riviera Rooms",
+    "Boho Rooms",
+    "Boho Apartment",
+    "Boho Apartament",
+    # Wi-Fi network names, which guests read back over the phone
+    "MoloResidence",
+    "MoloResidence Apartments",
+    # Things guests ask about by name
+    "Forest Opera",
+    "SmartHotel",
+    "Profitroom",
+    "Booking.com",
+]
 LLM_MODEL = os.getenv("LLM_MODEL", "google/gemma-4-31b-it")
 
 # TTS: Cartesia Sonic-3.5 on the client's chosen voice, rendering Polish.
@@ -246,10 +289,22 @@ def _closed_message(language: str = "en") -> str:
 
 def _stt_kwargs() -> dict:
     """STT kwargs — pass `language` only when set. Whisper auto-detects (EN+PL) with
-    no language, whereas Deepgram nova-3 needs language="multi" (set STT_LANGUAGE)."""
-    kw = {"model": STT_MODEL}
+    no language, whereas Deepgram nova-3 needs language="multi" (set STT_LANGUAGE).
+
+    Keyterms ride along in extra_kwargs as Deepgram's native `keyterm` parameter.
+    The SDK's managed `STTContextOptions` would be tidier but does not exist in
+    livekit-agents 1.4.4, which is pinned (see pyproject) — so this talks to the
+    provider parameter directly.
+
+    Only sent for Nova-3: keyterm prompting is a Nova-3 feature, and passing it to
+    another model risks the gateway rejecting the whole request rather than
+    ignoring one field.
+    """
+    kw: dict = {"model": STT_MODEL}
     if STT_LANGUAGE:
         kw["language"] = STT_LANGUAGE
+    if STT_KEYTERMS and "nova-3" in STT_MODEL:
+        kw["extra_kwargs"] = {"keyterm": list(STT_KEYTERMS)}
     return kw
 
 

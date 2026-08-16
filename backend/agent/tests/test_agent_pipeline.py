@@ -765,3 +765,46 @@ def test_keyword_fallback_also_sees_the_general_kb(monkeypatch):
     out = asyncio.run(a._answer_kb("tell me about the pier"))
     assert "pier" in out.lower()
     assert a.kb_content == "ROOM BIT", "kb_content must be restored after the fallback"
+
+
+# ── STT keyterms ─────────────────────────────────────────────────────────────
+
+def test_keyterms_cover_the_words_that_actually_failed():
+    # Every one of these was mis-transcribed on a real call (2026-08-16):
+    # "Pułaskiego 6a" -> "Policy AOS CXR" / "Go six eight" / "Google six a", and
+    # "Sopot" vanished entirely, twice.
+    import agent_pipeline as ap
+    for term in ("Sopot", "Pułaskiego", "Chmielewskiego", "Chopina"):
+        assert term in ap.STT_KEYTERMS, f"{term} mis-transcribes and must be boosted"
+
+
+def test_keyterms_reach_deepgram_as_its_native_parameter():
+    import agent_pipeline as ap
+    kw = ap._stt_kwargs()
+    assert kw["extra_kwargs"]["keyterm"] == list(ap.STT_KEYTERMS)
+    # Must not clobber the multilingual hint.
+    assert kw["language"] == "multi"
+
+
+def test_keyterms_are_not_sent_to_a_model_that_lacks_the_feature(monkeypatch):
+    # Keyterm prompting is Nova-3 only. Sending it to another model risks the
+    # gateway rejecting the whole request rather than ignoring one field.
+    import agent_pipeline as ap
+    monkeypatch.setattr(ap, "STT_MODEL", "cartesia/ink-whisper")
+    assert "extra_kwargs" not in ap._stt_kwargs()
+
+
+def test_keyterm_list_stays_short_and_distinctive():
+    # Keyterms bias the decoder. A long list of ordinary words dilutes the boost
+    # and can pull normal speech toward them, so this is names only — not the
+    # knowledge base.
+    import agent_pipeline as ap
+    assert len(ap.STT_KEYTERMS) <= 40, "too many keyterms dilutes the boost"
+    assert len(set(ap.STT_KEYTERMS)) == len(ap.STT_KEYTERMS), "duplicate keyterms"
+    assert all(t.strip() for t in ap.STT_KEYTERMS)
+
+
+def test_diacritic_street_has_an_ascii_variant():
+    # Callers say it as spelled and Deepgram may emit either form.
+    import agent_pipeline as ap
+    assert "Pułaskiego" in ap.STT_KEYTERMS and "Pulaskiego" in ap.STT_KEYTERMS
