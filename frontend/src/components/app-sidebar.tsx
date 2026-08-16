@@ -10,6 +10,7 @@ import {
   Wrench,
   Phone,
   Users,
+  ShieldOff,
 } from "lucide-react";
 
 const navGroups = [
@@ -31,6 +32,7 @@ const navGroups = [
     items: [
       { title: "Maintenance", href: "/maintenance", icon: Wrench },
       { title: "Calls", href: "/calls", icon: Phone },
+      { title: "GDPR", href: "/gdpr", icon: ShieldOff },
     ],
   },
   {

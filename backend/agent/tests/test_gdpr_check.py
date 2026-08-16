@@ -133,3 +133,65 @@ def test_alert_can_be_turned_off(monkeypatch):
     monkeypatch.setattr(ap.sms, "send_sms", lambda to, msg: called.append(to))
     ap._notify_gdpr_erasure("+48123456789", 1)
     assert called == []
+
+
+def test_thinking_is_disabled_and_the_budget_is_not_starved(monkeypatch):
+    # THE REGRESSION (live 2026-08-16): gemini-2.5-flash is a thinking model and
+    # its reasoning tokens come out of max_output_tokens. With max_output_tokens=5
+    # it spent the whole budget thinking and returned EMPTY text on every call,
+    # which the bias-to-NO rule read as "no deletion requested". Real requests
+    # were silently dropped.
+    import gdpr_check
+    from google.genai import types
+
+    seen = {}
+
+    class R:
+        text = "NO"
+
+    async def fake(**kw):
+        seen["cfg"] = kw.get("config")
+        return R()
+
+    class FakeModels:
+        generate_content = staticmethod(fake)
+    class FakeAio:
+        models = FakeModels()
+    class FakeClient:
+        aio = FakeAio()
+
+    monkeypatch.setattr(gdpr_check, "_get_client", lambda: FakeClient())
+    asyncio.run(gdpr_check.caller_requested_deletion("user: hello"))
+
+    cfg = seen["cfg"]
+    assert cfg.thinking_config is not None, "thinking must be explicitly disabled"
+    assert cfg.thinking_config.thinking_budget == 0
+    # Enough room to say YES or NO even if a model ignores the thinking budget.
+    assert cfg.max_output_tokens >= 16
+
+
+def test_empty_answer_is_logged_as_a_fault_not_a_decision(monkeypatch, caplog):
+    # An empty response must be distinguishable in the logs from a genuine "NO",
+    # or the next silent failure looks identical to normal operation.
+    import logging
+    import gdpr_check
+
+    class R:
+        text = ""
+        candidates = []
+
+    async def fake(**kw):
+        return R()
+
+    class FakeModels:
+        generate_content = staticmethod(fake)
+    class FakeAio:
+        models = FakeModels()
+    class FakeClient:
+        aio = FakeAio()
+
+    monkeypatch.setattr(gdpr_check, "_get_client", lambda: FakeClient())
+    with caplog.at_level(logging.ERROR, logger="molo-agent.gdpr"):
+        assert asyncio.run(gdpr_check.caller_requested_deletion("user: delete my data")) is False
+    assert any("NO TEXT" in r.message for r in caplog.records), \
+        "an empty answer must be logged at ERROR, not pass as a routine no"

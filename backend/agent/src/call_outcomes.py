@@ -226,6 +226,30 @@ def parse_labels(reply: str | None) -> list[str]:
     return seen
 
 
+def classify_config(types):
+    """The Gemini request config. Split out so the token budget is testable.
+
+    ⚠️ `thinking_budget=0` is load-bearing. Gemini 2.5 Flash thinks by default,
+    and thinking tokens come out of `max_output_tokens` — so a tight budget is
+    spent reasoning and the visible answer is truncated or empty. The first live
+    call after this shipped logged
+
+        outcome classify: 'question' -> []
+
+    "question" being all that was left of "question_answered" once thinking had
+    taken the rest of a 40-token budget. Every label was dropped and the
+    classifier contributed nothing (the tool-derived outcomes carried the call).
+    Thinking is off AND the budget is comfortable — either alone would do, but
+    this is a post-call job nobody is waiting on, so it takes both.
+    """
+    return types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        temperature=0.0,
+        max_output_tokens=200,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+    )
+
+
 async def classify_transcript(transcript: str | None) -> list[str]:
     """Label a finished transcript. Never raises; returns [] if it can't.
 
@@ -240,11 +264,7 @@ async def classify_transcript(transcript: str | None) -> list[str]:
         from google.genai import types
 
         client = _get_client()
-        cfg = types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            temperature=0.0,
-            max_output_tokens=40,
-        )
+        cfg = classify_config(types)
         resp = await asyncio.wait_for(
             client.aio.models.generate_content(
                 model=_MODEL,
@@ -253,8 +273,15 @@ async def classify_transcript(transcript: str | None) -> list[str]:
             ),
             timeout=_TIMEOUT_S,
         )
-        labels = parse_labels(getattr(resp, "text", None))
-        logger.info("outcome classify: %r -> %s", (getattr(resp, "text", "") or "")[:60], labels)
+        reply = getattr(resp, "text", None)
+        labels = parse_labels(reply)
+        if reply and not labels:
+            # The model said something and none of it was a label we know. That
+            # is how the truncation bug above showed up, so it warns rather than
+            # disappearing into an INFO line.
+            logger.warning("outcome classify: no known labels in %r", reply[:80])
+        else:
+            logger.info("outcome classify: %r -> %s", (reply or "")[:60], labels)
         return labels
     except asyncio.TimeoutError:
         logger.warning("outcome classify timed out after %ss", _TIMEOUT_S)

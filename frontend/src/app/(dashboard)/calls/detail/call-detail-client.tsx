@@ -13,13 +13,26 @@ import { formatEurFromUsd } from '@/lib/money';
 import {
   callOutcomes,
   formatDuration,
-  humanize,
   isEstimatedCost,
   type CallRow,
 } from '@/lib/calls-view';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 
 type CallLog = Tables<'call_logs'>;
+
+/**
+ * Labels for the cost components the agent records (call_cost.py). Spelled out
+ * rather than run through humanize(), which would render the acronyms as "Tts"
+ * and "Llm".
+ */
+const COST_COMPONENT_LABELS: Record<string, string> = {
+  llm: 'LLM',
+  stt: 'Speech-to-text',
+  tts: 'Voice',
+  session: 'LiveKit session',
+  telephony: 'Telephony',
+  kb_search: 'KB search',
+};
 
 /** Absolute date + time — staff want the wall-clock moment, not "2 hours ago". */
 function formatStartedAt(value: string | null | undefined): string {
@@ -130,7 +143,10 @@ export function CallDetail({ call }: { call: CallLog }) {
                   {Object.entries(costParts)
                     .filter(([, v]) => Number(v) > 0)
                     .sort(([, a], [, b]) => Number(b) - Number(a))
-                    .map(([k, v]) => `${humanize(k)} ${formatEurFromUsd(v)}`)
+                    .map(
+                      ([k, v]) =>
+                        `${COST_COMPONENT_LABELS[k] ?? k} ${formatEurFromUsd(v)}`,
+                    )
                     .join(' · ')}
                 </p>
               )}

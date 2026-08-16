@@ -145,6 +145,19 @@ def test_an_empty_or_broken_reply_yields_nothing():
     assert co.parse_labels(None) == []
 
 
+def test_thinking_is_disabled_and_the_token_budget_is_generous():
+    # Gemini 2.5 Flash thinks by default and thinking tokens are drawn from
+    # max_output_tokens. The first live call spent a 40-token budget thinking
+    # and returned the truncated word "question", so every label was dropped.
+    # Both halves of the fix are asserted; either alone would have prevented it.
+    from google.genai import types
+
+    cfg = co.classify_config(types)
+    assert cfg.thinking_config.thinking_budget == 0
+    assert cfg.max_output_tokens >= 100
+    assert cfg.temperature == 0.0
+
+
 def test_repeated_labels_collapse():
     assert co.parse_labels("complaint, complaint, complaint") == ["complaint"]
 

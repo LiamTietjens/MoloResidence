@@ -105,7 +105,11 @@ function FilterSelect({
   return (
     <Filter label={label}>
       <Select value={value} onValueChange={(v) => onValueChange((v as string) ?? ALL)}>
-        <SelectTrigger className={`h-9 w-full ${className ?? ''}`}>
+        {/* h-9! and not h-9: SelectTrigger sets its height through
+            `data-[size=default]:h-8`, and a class+attribute selector outranks a
+            plain utility class — so a bare h-9 loses and the trigger stays 32px
+            while the date inputs sit at 36px. That 4px is the misalignment. */}
+        <SelectTrigger className={`h-9! w-full ${className ?? ''}`}>
           <SelectValue>{labelFor}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -236,7 +240,12 @@ export function CallsList({
       ) : (
         <div className="space-y-2">
           <Table containerClassName="max-h-[calc(100vh-19rem)] min-h-40 overflow-auto rounded-lg border">
-            <TableHeader>
+            {/* No row borders in the header: a collapsed border adds a pixel to
+                the row box, which put the totals row one pixel below the column
+                headers — and scrolling rows showed through the gap. The two
+                rules are drawn by STICKY_CELL's inset shadow instead, so the
+                header block is exactly two 40px rows and `top-10` lands flush. */}
+            <TableHeader className="[&_tr]:border-b-0">
               <TableRow className="hover:bg-transparent">
                 {['Started', 'Duration', 'From', 'Mode', 'Property', 'Outcome'].map(
                   (head) => (

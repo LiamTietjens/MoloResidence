@@ -77,7 +77,19 @@ async def caller_requested_deletion(transcript: str) -> bool:
         cfg = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             temperature=0.0,
-            max_output_tokens=5,
+            # thinking_budget=0 is the fix for a real failure: gemini-2.5-flash is
+            # a THINKING model, and its reasoning tokens are drawn from
+            # max_output_tokens. This ran with max_output_tokens=5, the model
+            # spent the whole budget thinking, and `resp.text` came back EMPTY on
+            # every call — logged as "model said '' -> False". The bias-to-NO rule
+            # then read that as "no request", so a caller who genuinely asked for
+            # erasure was silently ignored (observed live 2026-08-16).
+            #
+            # This is a yes/no classification; it needs no reasoning budget at
+            # all. The larger token cap is belt-and-braces so a model that ignores
+            # the budget still has room to answer.
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            max_output_tokens=16,
         )
         resp = await asyncio.wait_for(
             client.aio.models.generate_content(
@@ -88,6 +100,23 @@ async def caller_requested_deletion(transcript: str) -> bool:
             timeout=_TIMEOUT_S,
         )
         answer = (getattr(resp, "text", None) or "").strip().upper()
+        if not answer:
+            # An empty answer is a MALFUNCTION, not a "no" — log loudly with the
+            # finish reason so it is diagnosable. This exact case silently
+            # swallowed real erasure requests before thinking_budget was pinned
+            # to 0; it must never look like a routine negative again.
+            reason = None
+            try:
+                reason = str(resp.candidates[0].finish_reason)
+            except Exception:  # noqa: BLE001
+                pass
+            logger.error(
+                "GDPR check returned NO TEXT (finish_reason=%s, usage=%s) — "
+                "treating as NO, but this is a fault, not a decision",
+                reason, getattr(resp, "usage_metadata", None),
+            )
+            return False
+
         # Exact match, not "startswith" — "NO" would otherwise be missed and
         # "NOT A DELETION REQUEST" would read as NO by accident rather than by
         # rule. Anything unexpected falls through to False.
