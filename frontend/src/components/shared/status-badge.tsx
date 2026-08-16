@@ -30,16 +30,30 @@ const COLOR_MAPS: Record<StatusKind, Record<string, string>> = {
       'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
     cancelled: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
   },
+  // A call carries SEVERAL of these at once (call_logs.outcomes), so they are
+  // coloured by KIND rather than all-different: green/emerald = the agent
+  // completed something, sky/teal = it looked something up, amber/rose = the
+  // caller wanted something they didn't get, slate/zinc = nothing happened.
+  // Sitting side by side in one cell, that reads far faster than 13 hues.
   outcome: {
-    booking_link_sent: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
-    reservation_info_provided: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
     maintenance_ticket_raised: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',
-    troubleshoot_resolved: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
+    booking_link_sent: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
     transferred_to_human: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300',
+    reservation_looked_up: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+    availability_checked: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
+    transfer_unavailable: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+    question_answered: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
     unresolved: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
-    abandoned: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+    complaint: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
     spam: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400',
+    wrong_number: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400',
+    abandoned: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
     other: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+    // Legacy values. Nothing writes them since 2026-08-16 and no row carries
+    // one, but the CHECK constraint still accepts them — so if one ever turns
+    // up it gets its old colour rather than the unknown-value grey.
+    reservation_info_provided: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+    troubleshoot_resolved: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
   },
   kind: {
     general: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',

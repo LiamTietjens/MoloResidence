@@ -9,18 +9,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { deleteCallTranscript } from '@/lib/calls-api';
+import { formatEurFromUsd } from '@/lib/money';
+import {
+  callOutcomes,
+  formatDuration,
+  humanize,
+  isEstimatedCost,
+  type CallRow,
+} from '@/lib/calls-view';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 
 type CallLog = Tables<'call_logs'>;
-
-/** Format a duration in seconds as "m:ss". Returns an em dash for null. */
-function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null || Number.isNaN(seconds)) return '—';
-  const total = Math.max(0, Math.floor(seconds));
-  const mins = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
 
 /** Absolute date + time — staff want the wall-clock moment, not "2 hours ago". */
 function formatStartedAt(value: string | null | undefined): string {
@@ -83,6 +82,10 @@ const SPEAKER_LABEL: Record<Turn['speaker'], string> = {
 export function CallDetail({ call }: { call: CallLog }) {
   const turns = parseTranscript(call.summary);
   const queryClient = useQueryClient();
+  const outcomes = callOutcomes(call as unknown as CallRow);
+  const costEstimated = isEstimatedCost(call as unknown as CallRow);
+  const costParts = (call.cost_breakdown as { components_usd?: Record<string, number> } | null)
+    ?.components_usd;
 
   const deleteTranscript = useMutation({
     mutationFn: () => deleteCallTranscript(call.id),
@@ -105,7 +108,7 @@ export function CallDetail({ call }: { call: CallLog }) {
 
       <Card>
         <CardContent className="pt-6">
-          <dl className="grid gap-6 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <dl className="grid gap-6 text-sm sm:grid-cols-2 lg:grid-cols-5">
             <Field label="Started">{formatStartedAt(call.started_at)}</Field>
             <Field label="Duration">
               <span className="tabular-nums">
@@ -115,8 +118,34 @@ export function CallDetail({ call }: { call: CallLog }) {
             <Field label="Caller">
               <span className="font-mono text-xs">{call.from_number ?? '—'}</span>
             </Field>
-            <Field label="Outcome">
-              <StatusBadge kind="outcome" value={call.outcome} />
+            <Field label={costEstimated ? 'Cost (estimated)' : 'Cost'}>
+              <span className="tabular-nums">
+                {call.cost_usd != null ? formatEurFromUsd(call.cost_usd) : '—'}
+              </span>
+              {/* Where the money went. Only a measured call has a real split
+                  to show — an estimate is the same per-minute figure sliced up,
+                  which would look like detail it hasn't got. */}
+              {costParts && !costEstimated && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {Object.entries(costParts)
+                    .filter(([, v]) => Number(v) > 0)
+                    .sort(([, a], [, b]) => Number(b) - Number(a))
+                    .map(([k, v]) => `${humanize(k)} ${formatEurFromUsd(v)}`)
+                    .join(' · ')}
+                </p>
+              )}
+            </Field>
+            {/* Outcomes, plural: what the call actually did, in rank order. */}
+            <Field label={outcomes.length > 1 ? 'Outcomes' : 'Outcome'}>
+              {outcomes.length === 0 ? (
+                <StatusBadge kind="outcome" value={null} />
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {outcomes.map((o) => (
+                    <StatusBadge key={o} kind="outcome" value={o} />
+                  ))}
+                </div>
+              )}
             </Field>
           </dl>
         </CardContent>

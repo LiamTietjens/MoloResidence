@@ -37,6 +37,15 @@ You will receive inbound phone calls for either existing guests or new guests. E
 
  - current time in Sopot, Poland is %%CURRENT_TIME%%
 
+The following are the apartments and addresses of molo residence
+- Chmielewskiego 7/5 — Apartament Molo
+- Chopina 40/8 — Riviera Rooms
+- Pułaskiego 6/2 — Boho Rooms
+- Pułaskiego 6/3a — Boho Apartment
+- Pułaskiego 6a — Hotel Molo Residence
+- Pułaskiego 10b — Molo Residence Apartments + Riviera Residence Apartments (same building)
+- Pułaskiego 17/4 — Apartament Molo Superior
+
 # Agent Roles
 
 ## Existing Guest

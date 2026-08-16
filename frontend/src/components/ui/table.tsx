@@ -4,11 +4,23 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  containerClassName,
+  ...props
+}: React.ComponentProps<"table"> & {
+  /**
+   * Classes for the scroll container around the table. Needed to cap its
+   * height: a `position: sticky` header only sticks against a scrollport, and
+   * the container is the nearest one (`overflow-x` makes it a scroll container
+   * on both axes). Left alone, the container grows to fit and nothing sticks.
+   */
+  containerClassName?: string
+}) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      className={cn("relative w-full overflow-x-auto", containerClassName)}
     >
       <table
         data-slot="table"

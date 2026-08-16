@@ -106,6 +106,7 @@ export type Database = {
       }
       call_logs: {
         Row: {
+          cost_breakdown: Json | null
           cost_usd: number | null
           direction: string
           duration_seconds: number | null
@@ -115,8 +116,11 @@ export type Database = {
           language: string | null
           mode: string | null
           outcome: string | null
+          outcomes: string[]
           property_id: string | null
           recording_url: string | null
+          redacted_at: string | null
+          redaction_reason: string | null
           reservation_id: string | null
           room_number: string | null
           sentiment: string | null
@@ -127,6 +131,7 @@ export type Database = {
           transcript_url: string | null
         }
         Insert: {
+          cost_breakdown?: Json | null
           cost_usd?: number | null
           direction?: string
           duration_seconds?: number | null
@@ -136,8 +141,11 @@ export type Database = {
           language?: string | null
           mode?: string | null
           outcome?: string | null
+          outcomes?: string[]
           property_id?: string | null
           recording_url?: string | null
+          redacted_at?: string | null
+          redaction_reason?: string | null
           reservation_id?: string | null
           room_number?: string | null
           sentiment?: string | null
@@ -148,6 +156,7 @@ export type Database = {
           transcript_url?: string | null
         }
         Update: {
+          cost_breakdown?: Json | null
           cost_usd?: number | null
           direction?: string
           duration_seconds?: number | null
@@ -157,8 +166,11 @@ export type Database = {
           language?: string | null
           mode?: string | null
           outcome?: string | null
+          outcomes?: string[]
           property_id?: string | null
           recording_url?: string | null
+          redacted_at?: string | null
+          redaction_reason?: string | null
           reservation_id?: string | null
           room_number?: string | null
           sentiment?: string | null

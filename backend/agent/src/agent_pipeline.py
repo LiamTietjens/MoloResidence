@@ -15,7 +15,7 @@ import time
 from livekit import agents, rtc
 from livekit.agents import (AgentServer, AgentSession, room_io, inference, tts as tts_api,
                             BackgroundAudioPlayer, BuiltinAudioClip, AudioConfig,
-                            function_tool, RunContext)
+                            function_tool, metrics as lk_metrics, RunContext)
 from livekit.api import LiveKitAPI
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -27,6 +27,8 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 # includes an AI disclosure and a transcription/data notice, so the pipeline now
 # speaks WELCOME_MESSAGE below instead. agent.py itself is untouched.
 from agent import MoloAgent, _now_warsaw, _now_iso  # noqa
+import call_cost
+import call_outcomes
 import gdpr_check
 import kb_search
 import molo_supabase as db
@@ -466,6 +468,12 @@ class PipelineMoloAgent(MoloAgent):
         # Capture it now — it is the only chance. agent.py overwrites kb_content
         # with the room's KB and keeps no reference to what it replaced.
         self._general_kb: str = self.kb_content or ""
+        # Characters sent to / returned by the Vertex AI KB search. It runs
+        # outside LiveKit, so its usage appears in no LiveKit metric; counting
+        # the text here is the only way that line reaches the cost breakdown.
+        # See call_cost.CallUsage.
+        self.kb_input_chars: int = 0
+        self.kb_output_chars: int = 0
 
     async def tts_node(self, text, model_settings):
         return super().tts_node(_clean_stream(text), model_settings)
@@ -511,7 +519,12 @@ class PipelineMoloAgent(MoloAgent):
             return cached
 
         combined = self._kb_with_general()
+        # Counted BEFORE the call and only on a cache miss: a memoized answer
+        # costs nothing, and a lookup that then fails still burned the prompt.
+        self.kb_input_chars += len(combined) + len(question)
         result = await kb_search.answer_from_kb(question, combined)
+        if result is not None:
+            self.kb_output_chars += len(result)
         if result is None:
             # Keyword fallback reads self.kb_content, so point it at the combined
             # text for the duration and put it back afterwards.
@@ -836,6 +849,20 @@ async def molo_pipeline_session(ctx: agents.JobContext):
         except Exception:  # noqa: BLE001
             pass
 
+    # What the call actually consumed — LLM tokens, TTS characters, STT audio
+    # seconds — accumulated from the pipeline's own metrics. This is what makes
+    # call_logs.cost_usd a measurement rather than duration x a guessed rate.
+    # UsageCollector.collect() ignores metric types it doesn't price, so every
+    # event can be handed to it unfiltered.
+    usage_collector = lk_metrics.UsageCollector()
+
+    @session.on("metrics_collected")
+    def _on_metrics(ev):
+        try:
+            usage_collector.collect(ev.metrics)
+        except Exception:  # noqa: BLE001 — cost accounting never interrupts a call
+            pass
+
     call_start = time.time()
 
     await session.start(
@@ -970,12 +997,48 @@ async def molo_pipeline_session(ctx: agents.JobContext):
     # Persist the call for review (transcript + tool trace incl. which KB answered).
     if call_id:
         transcript = "\n".join(transcript_log) if transcript_log else None
-        if agent.outcome_hint:
-            outcome = agent.outcome_hint
-        elif not agent.tool_calls and end_reason in ("dead_air", "caller_hangup"):
-            outcome = "abandoned"
-        else:
-            outcome = "other"
+
+        # What the call did — a LIST now, not one label. The tool trace supplies
+        # the outcomes it can prove; a single Gemini pass over the transcript
+        # supplies the conversational ones. See call_outcomes for the rules,
+        # notably that 'abandoned' now means an actual hang-up rather than
+        # "no tool happened to run".
+        #
+        # `for_call` is internally guarded and awaits a model call, so it runs
+        # BEFORE the write: the caller has already hung up, nothing is waiting
+        # on it, and one write with everything beats two round trips.
+        try:
+            outcomes = await call_outcomes.for_call(
+                tool_calls=agent.tool_calls,
+                transcript=transcript,
+                transcript_lines=transcript_log,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("outcome derivation failed: %s", exc)
+            outcomes = []
+
+        # What the call cost. Measured usage where LiveKit reports it; the flat
+        # per-minute lines multiplied out from the duration. If no metrics
+        # arrived at all (a session that died before the first turn), fall back
+        # to the blended per-minute figure and mark it unmeasured.
+        try:
+            summary = usage_collector.get_summary()
+            if summary.tts_characters_count or summary.llm_prompt_tokens:
+                breakdown = call_cost.estimate_cost(call_cost.usage_from_summary(
+                    summary, call_duration,
+                    kb_input_chars=agent.kb_input_chars,
+                    kb_output_chars=agent.kb_output_chars,
+                ))
+            else:
+                breakdown = call_cost.estimate_from_duration(call_duration)
+            cost_usd = breakdown["total_usd"]
+            logger.info("Call cost: $%.4f (%s) %s", cost_usd,
+                        "measured" if breakdown["measured"] else "estimated",
+                        breakdown["components_usd"])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cost calculation failed: %s", exc)
+            breakdown, cost_usd = None, None
+
         try:
             db.update_call_log(call_id, {
                 "ended_at": _now_iso(),
@@ -983,7 +1046,13 @@ async def molo_pipeline_session(ctx: agents.JobContext):
                 "summary": (transcript or "")[:4000] or None,
                 "tool_calls": agent.tool_calls,
                 "mode": agent.mode,
-                "outcome": outcome,
+                # Both columns: `outcomes` is the truth, `outcome` is the
+                # highest-ranked entry of it and stays populated because the
+                # home dashboard's category chart still groups by it.
+                "outcomes": outcomes,
+                "outcome": call_outcomes.primary(outcomes),
+                "cost_usd": cost_usd,
+                "cost_breakdown": breakdown,
                 "property_id": agent.property_id,
                 "room_number": agent.room_number,
             })
