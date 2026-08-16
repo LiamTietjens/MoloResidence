@@ -83,6 +83,13 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Chart tokens. Single-series blue, validated against both surfaces:
+     inside the lightness band, above the chroma floor, >=3:1 contrast.
+     Light #2a78d6 / dark #3987e5 — the same hue re-stepped for the dark
+     surface, not an automatic flip. */
+  --chart-series-1: #2a78d6;
+  --chart-grid: oklch(0.922 0 0);
+  --chart-surface: oklch(1 0 0);
 }
 
 .dark {
@@ -117,6 +124,9 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --chart-series-1: #3987e5;
+  --chart-grid: oklch(0.269 0 0);
+  --chart-surface: oklch(0.145 0 0);
 }
 
 @layer base {

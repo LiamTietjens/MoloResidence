@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert@^1.0.0';
 import { Hono } from 'hono';
-import { buildMetricsRoutes } from './metrics.ts';
+import { buildMetricsRoutes, rangeWindow } from './metrics.ts';
 
 // The home-page metrics fan out into many parallel queries with different
 // shapes (head/count, gte, in, limit). The fake keys its response off the
@@ -107,4 +107,22 @@ Deno.test('GET /metrics returns the aggregated home-page payload', async () => {
   // topTickets sorted by urgency (critical before high), capped at 5.
   assertEquals(body.topTickets[0].id, 't2');
   assertEquals(body.topTickets[1].id, 't1');
+});
+
+Deno.test('rangeWindow buckets each range the way the chart expects', () => {
+  const now = new Date('2026-08-16T14:30:00Z');
+  assertEquals(rangeWindow('day', now).bucket, 'hour');
+  assertEquals(rangeWindow('week', now).bucket, 'day');
+  assertEquals(rangeWindow('month', now).bucket, 'day');
+  assertEquals(rangeWindow('year', now).bucket, 'month');
+});
+
+Deno.test('rangeWindow starts each window at the right point', () => {
+  const now = new Date('2026-08-16T14:30:00Z');
+  // Day starts at local midnight today, not 24h ago.
+  const day = rangeWindow('day', now).start;
+  assertEquals(day.getHours(), 0);
+  // Week is 7 days INCLUSIVE of today, so the start is 6 days back.
+  const week = rangeWindow('week', now).start;
+  assertEquals(Math.round((now.getTime() - week.getTime()) / 86400000), 6);
 });

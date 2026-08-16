@@ -4,35 +4,47 @@ import { fetchMetrics } from './metrics-api';
 
 beforeEach(() => vi.restoreAllMocks());
 
+const metrics = {
+  range: 'week',
+  bucket: 'day',
+  totalCalls: 12,
+  totalMinutes: 48,
+  totalCostUsd: 0.42,
+  minutesSaved: 96,
+  moneySavedEur: 30,
+  openTickets: 1,
+  criticalTickets: 0,
+  highTickets: 1,
+  series: [{ date: '2026-08-16', count: 3 }],
+  categories: [{ outcome: 'booking_link_sent', count: 2 }],
+  topTickets: [],
+  calls: [],
+};
+
 describe('metrics-api', () => {
-  it('fetchMetrics GETs /metrics', async () => {
-    const spy = vi.spyOn(client, 'apiFetch').mockResolvedValue({
-      callsToday: 5,
-      openTickets: 2,
-    } as never);
-    const res = await fetchMetrics();
-    expect(spy).toHaveBeenCalledWith('/metrics');
-    expect(res.callsToday).toBe(5);
+  it('defaults to the week range', async () => {
+    const spy = vi.spyOn(client, 'apiFetch').mockResolvedValue(metrics as never);
+    await fetchMetrics();
+    expect(spy).toHaveBeenCalledWith('/metrics?range=week');
   });
 
-  it('fetchMetrics returns the full metrics shape', async () => {
-    const mockData = {
-      callsToday: 3,
-      durationTodaySeconds: 300,
-      costTodayUsd: 0.15,
-      openTickets: 1,
-      criticalTickets: 0,
-      highTickets: 1,
-      bookingLinks7d: 10,
-      bookingCtr: '50%',
-      bookingConv: '25%',
-      activeProperties: 8,
-      recentCalls: [],
-      topTickets: [],
-    };
-    vi.spyOn(client, 'apiFetch').mockResolvedValue(mockData as never);
-    const res = await fetchMetrics();
-    expect(res.activeProperties).toBe(8);
-    expect(res.bookingCtr).toBe('50%');
+  it('passes the selected range through', async () => {
+    const spy = vi.spyOn(client, 'apiFetch').mockResolvedValue(metrics as never);
+    for (const r of ['day', 'week', 'month', 'year'] as const) {
+      await fetchMetrics(r);
+      expect(spy).toHaveBeenCalledWith(`/metrics?range=${r}`);
+    }
+  });
+
+  it('returns the stats, series and categories the dashboard renders', async () => {
+    vi.spyOn(client, 'apiFetch').mockResolvedValue(metrics as never);
+    const res = await fetchMetrics('week');
+    expect(res.totalCalls).toBe(12);
+    // Saved time is derived server-side; the client must never recompute it, so
+    // that the labour-cost model lives in exactly one place.
+    expect(res.minutesSaved).toBe(96);
+    expect(res.moneySavedEur).toBe(30);
+    expect(res.series[0].count).toBe(3);
+    expect(res.categories[0].outcome).toBe('booking_link_sent');
   });
 });
