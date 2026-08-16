@@ -394,6 +394,28 @@ def update_call_log(call_id: str, patch: dict[str, Any]) -> bool:
         return False
 
 
+def redact_calls_for_number(phone: str) -> int:
+    """GDPR erasure for a phone number. Returns how many calls were scrubbed.
+
+    Calls the `redact_calls_for_number` SQL function rather than issuing the
+    updates from here, so the agent and the nightly retention sweep share one
+    definition of what "erased" means — phone number and transcript cleared on
+    EVERY call from that number, plus booking_links, with the rows themselves
+    kept so the dashboard's stats are unaffected.
+
+    Returns 0 on any error; the caller decides what to do about that.
+    """
+    if not phone or not phone.strip():
+        return 0
+    try:
+        sb = get_client()
+        resp = sb.rpc("redact_calls_for_number", {"target_phone": phone}).execute()
+        return int(resp.data or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("redact_calls_for_number failed for %s: %s", phone, exc)
+        return 0
+
+
 # -----------------------------------------------------------------------------
 # Agent settings (singleton)
 # -----------------------------------------------------------------------------

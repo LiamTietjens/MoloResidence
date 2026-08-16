@@ -27,8 +27,10 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 # includes an AI disclosure and a transcription/data notice, so the pipeline now
 # speaks WELCOME_MESSAGE below instead. agent.py itself is untouched.
 from agent import MoloAgent, _now_warsaw, _now_iso  # noqa
+import gdpr_check
 import kb_search
 import molo_supabase as db
+import sms
 from pipeline_prompt import PIPELINE_INSTRUCTIONS, render_instructions
 from thinking_filter import strip_thinking_tokens
 
@@ -179,6 +181,31 @@ def _spoken_hour(hour: int) -> str:
 # "info@moloresidence.pl" as a mangled URL; spelling it out loud is the client's
 # own convention (they use the same form in the system prompt).
 SPOKEN_EMAIL = "info at molo residence dot pl"
+
+# Where the "someone asked for erasure" alert goes. Staff-facing, not guest-facing.
+# Unset it to turn the alert off; erasure still happens either way.
+GDPR_ALERT_PHONE = os.getenv("GDPR_ALERT_PHONE", "+4915755577318")
+
+
+def _notify_gdpr_erasure(caller_phone: str, calls_redacted: int) -> None:
+    """Text the operator that an erasure request came in and was carried out.
+
+    Sent AFTER the deletion, so the message only ever reports something that
+    actually happened. Guarded: a failed SMS must not undo or obscure a
+    completed erasure — the dashboard still shows it, this is only the nudge.
+    """
+    if not GDPR_ALERT_PHONE:
+        return
+    try:
+        plural = "call" if calls_redacted == 1 else "calls"
+        sms.send_sms(
+            GDPR_ALERT_PHONE,
+            f"Molo Residence: {caller_phone} requested deletion of their data. "
+            f"Done automatically — phone number and transcript removed from "
+            f"{calls_redacted} {plural}. Visible in the dashboard.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("GDPR alert SMS failed: %s", exc)
 
 
 _DAY_NAMES = {
@@ -907,6 +934,23 @@ async def molo_pipeline_session(ctx: agents.JobContext):
             })
         except Exception as exc:  # noqa: BLE001
             logger.warning("update_call_log failed: %s", exc)
+
+        # ── GDPR: did the caller ask for their data to be deleted? ──────────
+        # Runs AFTER the transcript is saved, deliberately: if the erasure
+        # succeeds it wipes what we just wrote, and if anything here fails the
+        # call is still recorded normally. The whole block is guarded — a caller
+        # has already hung up by this point and nothing here may raise.
+        try:
+            if transcript and caller_phone and await gdpr_check.caller_requested_deletion(transcript):
+                # Erase every call from this number, not just this one — a
+                # request covers all of the caller's data, not one conversation.
+                n = db.redact_calls_for_number(caller_phone)
+                logger.info("GDPR erasure for %s: %s call(s) redacted", caller_phone, n)
+                _notify_gdpr_erasure(caller_phone, n)
+            # No else-branch logging: the answer is NO on almost every call and
+            # would drown the logs.
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("GDPR post-call check failed: %s", exc)
 
     # If we ended the call ourselves, remove the SIP participant and disconnect.
     if end_reason != "caller_hangup":
