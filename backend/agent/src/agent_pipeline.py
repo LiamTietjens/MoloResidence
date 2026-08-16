@@ -176,8 +176,15 @@ MAX_ENDPOINTING_DELAY = float(os.getenv("MAX_ENDPOINTING_DELAY", "2.0"))   # cap
 VAD_MIN_SILENCE = float(os.getenv("VAD_MIN_SILENCE", "0.6"))               # Silero end-of-speech window
 
 # Dead-air / duration guards — copied from agent.py so behaviour matches.
-DEAD_AIR_CHECKIN = 25
-DEAD_AIR_HANGUP = 40
+# Dead air is measured from when it became the CALLER's turn — the later of
+# "they last said something" and "the agent finished speaking". Measuring from
+# the caller's words alone would start the clock under the agent's own reply and
+# fire a follow-up while it was still mid-sentence; measuring from the agent's
+# speech alone (the previous behaviour) let a chatty agent reset the timer
+# forever, so a silent caller was never noticed.
+SILENCE_FOLLOWUP_S = float(os.getenv("SILENCE_FOLLOWUP_S", "7"))    # first nudge
+SILENCE_MAX_FOLLOWUPS = int(os.getenv("SILENCE_MAX_FOLLOWUPS", "2"))
+SILENCE_HANGUP_S = float(os.getenv("SILENCE_HANGUP_S", "30"))       # then end the call
 MAX_CALL_DURATION = 7 * 60
 
 # ── Front-desk opening hours ────────────────────────────────────────────────
@@ -922,24 +929,34 @@ async def molo_pipeline_session(ctx: agents.JobContext):
 
     async def call_monitor():
         nonlocal end_reason
-        last_activity = time.time()
-        checkin_sent = False
-
-        def _reset_activity():
-            nonlocal last_activity, checkin_sent
-            last_activity = time.time()
-            checkin_sent = False
+        # Two clocks. `last_user_at` is the caller's last WORDS; `turn_started_at`
+        # is when the agent stopped talking. Silence counts from whichever came
+        # later, so the caller always gets the full window to themselves.
+        last_user_at = time.time()
+        turn_started_at = time.time()
+        followups_sent = 0
 
         @session.on("user_input_transcribed")
-        def on_user_input(*args, **kwargs):
-            _reset_activity()
+        def on_user_input(ev=None, *a, **kw):
+            nonlocal last_user_at, followups_sent
+            # Ignore interim transcripts with no words — Deepgram emits empty
+            # partials on background noise, which would otherwise read as speech
+            # and hold the line open indefinitely.
+            text = (getattr(ev, "transcript", "") or "").strip() if ev is not None else ""
+            if not text:
+                return
+            last_user_at = time.time()
+            followups_sent = 0          # they spoke; start the count over
 
-        @session.on("agent_speech_started")
-        def on_agent_speech_start(*args, **kwargs):
-            _reset_activity()
+        @session.on("agent_state_changed")
+        def on_agent_state(ev=None, *a, **kw):
+            nonlocal turn_started_at
+            # The caller's turn begins the moment the agent stops speaking.
+            if getattr(ev, "old_state", None) == "speaking":
+                turn_started_at = time.time()
 
         while not disconnect_event.is_set():
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
             if time.time() - call_start >= MAX_CALL_DURATION:
                 end_reason = "max_duration"
@@ -953,10 +970,19 @@ async def molo_pipeline_session(ctx: agents.JobContext):
                 disconnect_event.set()
                 break
 
-            silence_duration = time.time() - last_activity
+            # Never nudge or hang up over the agent's own voice — it is not the
+            # caller's turn until it has stopped.
+            if getattr(session, "agent_state", None) in ("speaking", "thinking"):
+                continue
 
-            if silence_duration >= DEAD_AIR_HANGUP:
+            silence_duration = time.time() - max(last_user_at, turn_started_at)
+
+            # Hang up on total silence since the caller last spoke, regardless of
+            # how many follow-ups went out.
+            if time.time() - last_user_at >= SILENCE_HANGUP_S:
                 end_reason = "dead_air"
+                logger.info("dead air: %.0fs since the caller last spoke — ending call",
+                            time.time() - last_user_at)
                 try:
                     await session.generate_reply(
                         instructions="The caller hasn't responded. Say goodbye warmly and let them know they can call back anytime."
@@ -967,8 +993,14 @@ async def molo_pipeline_session(ctx: agents.JobContext):
                 disconnect_event.set()
                 break
 
-            if silence_duration >= DEAD_AIR_CHECKIN and not checkin_sent:
-                checkin_sent = True
+            # Follow-ups at 7s, then 14s. Each one is spoken by the agent, which
+            # moves turn_started_at, so the next window is measured from the end
+            # of the nudge rather than overlapping it.
+            if (followups_sent < SILENCE_MAX_FOLLOWUPS
+                    and silence_duration >= SILENCE_FOLLOWUP_S * (followups_sent + 1)):
+                followups_sent += 1
+                logger.info("dead air: %.0fs quiet — follow-up %d of %d",
+                            silence_duration, followups_sent, SILENCE_MAX_FOLLOWUPS)
                 try:
                     await session.generate_reply(
                         instructions="The line has been quiet. Say ONLY a brief presence check and nothing about any previous topic — exactly like: 'Hello — are you still there?'"

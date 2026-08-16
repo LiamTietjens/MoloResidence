@@ -808,3 +808,45 @@ def test_diacritic_street_has_an_ascii_variant():
     # Callers say it as spelled and Deepgram may emit either form.
     import agent_pipeline as ap
     assert "Pułaskiego" in ap.STT_KEYTERMS and "Pulaskiego" in ap.STT_KEYTERMS
+
+
+# ── Dead-air handling ────────────────────────────────────────────────────────
+
+def test_silence_thresholds():
+    import agent_pipeline as ap
+    assert ap.SILENCE_FOLLOWUP_S == 7        # first nudge
+    assert ap.SILENCE_MAX_FOLLOWUPS == 2     # then one more, at 14s
+    assert ap.SILENCE_HANGUP_S == 30         # then end the call
+    # The nudges must both land before the hangup, or the second never fires.
+    assert ap.SILENCE_FOLLOWUP_S * ap.SILENCE_MAX_FOLLOWUPS < ap.SILENCE_HANGUP_S
+
+
+def test_the_old_agent_speech_reset_is_gone():
+    # REGRESSION: dead air used to reset on `agent_speech_started`, so every time
+    # the agent spoke the silence timer restarted. A caller who said nothing while
+    # the agent talked was never noticed. Silence is now measured from the
+    # caller's words and from when the agent STOPPED speaking.
+    import inspect
+    import agent_pipeline as ap
+    src = inspect.getsource(ap.molo_pipeline_session)
+    assert 'agent_speech_started' not in src
+    assert 'agent_state_changed' in src
+    assert 'old_state' in src, "the caller's turn starts when the agent leaves 'speaking'"
+
+
+def test_hangup_counts_from_the_callers_last_words_not_the_last_nudge():
+    # The nudges are the agent speaking. If the hangup clock reset on those, two
+    # follow-ups would push the deadline out and a dead line would stay open.
+    import inspect
+    import agent_pipeline as ap
+    src = inspect.getsource(ap.molo_pipeline_session)
+    assert 'time.time() - last_user_at >= SILENCE_HANGUP_S' in src
+
+
+def test_empty_transcripts_do_not_count_as_speech():
+    # Deepgram emits empty partials on background noise. Treating those as speech
+    # would hold a silent line open forever.
+    import inspect
+    import agent_pipeline as ap
+    src = inspect.getsource(ap.molo_pipeline_session)
+    assert 'if not text:' in src and 'return' in src
