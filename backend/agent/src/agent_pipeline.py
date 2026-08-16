@@ -236,7 +236,7 @@ SPOKEN_EMAIL = "info at molo residence dot pl"
 
 # Where the "someone asked for erasure" alert goes. Staff-facing, not guest-facing.
 # Unset it to turn the alert off; erasure still happens either way.
-GDPR_ALERT_PHONE = os.getenv("GDPR_ALERT_PHONE", "+4915755577318")
+GDPR_ALERT_PHONE = os.getenv("GDPR_ALERT_PHONE", "+48608466046")
 
 
 def _notify_gdpr_erasure(caller_phone: str, calls_redacted: int) -> None:

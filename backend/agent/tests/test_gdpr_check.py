@@ -103,7 +103,7 @@ def test_prompt_excludes_the_agent_offering_deletion():
 
 def test_alert_number_configured():
     import agent_pipeline as ap
-    assert ap.GDPR_ALERT_PHONE == "+4915755577318"
+    assert ap.GDPR_ALERT_PHONE == "+48608466046"
 
 
 def test_alert_is_sent_after_erasure_with_the_count(monkeypatch):
@@ -111,7 +111,7 @@ def test_alert_is_sent_after_erasure_with_the_count(monkeypatch):
     sent = {}
     monkeypatch.setattr(ap.sms, "send_sms", lambda to, msg: sent.update(to=to, msg=msg) or True)
     ap._notify_gdpr_erasure("+48123456789", 3)
-    assert sent["to"] == "+4915755577318"
+    assert sent["to"] == "+48608466046"
     assert "+48123456789" in sent["msg"]
     assert "3 calls" in sent["msg"]
 
